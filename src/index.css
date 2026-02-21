@@ -1,0 +1,5 @@
+@import "tailwindcss";
+
+.auth-input::placeholder {
+  color: #777;
+}
