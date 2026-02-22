@@ -1,19 +1,12 @@
-import { useMemo, useRef, useState, useEffect } from "react"
-
-// SECTION: Types
-type Msg = {
-  id: string
-  role: "friend" | "user"
-  text: string
-  ts: number
-}
+import { useEffect, useMemo, useRef, useState } from "react"
+import { ChatMessage, getFriendReply } from "../lib/chat"
 
 // SECTION: MainApp
 export default function MainApp() {
   const [friendName] = useState("My Best Friend")
-  const [status] = useState<"online" | "typing">("online")
+  const [status, setStatus] = useState<"online" | "typing">("online")
   const [input, setInput] = useState("")
-  const [messages, setMessages] = useState<Msg[]>(() => [
+  const [messages, setMessages] = useState<ChatMessage[]>(() => [
     {
       id: "m1",
       role: "friend",
@@ -39,29 +32,42 @@ export default function MainApp() {
     el.scrollTop = el.scrollHeight
   }, [messages.length])
 
-  // SECTION: Send (UI only for now)
-  const send = () => {
+  // SECTION: Send message
+  const send = async () => {
     const text = input.trim()
     if (!text) return
 
-    setMessages((prev) => [
-      ...prev,
-      { id: `u-${Date.now()}`, role: "user", text, ts: Date.now() },
-    ])
+    const userMsg: ChatMessage = {
+      id: `u-${Date.now()}`,
+      role: "user",
+      text,
+      ts: Date.now(),
+    }
+
+    // Add user message immediately
+    setMessages((prev) => [...prev, userMsg])
     setInput("")
 
-    // Fake friend response (placeholder)
-    setTimeout(() => {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `f-${Date.now()}`,
-          role: "friend",
-          text: "Got it. (AI reply will be added in Phase 4.)",
-          ts: Date.now(),
-        },
-      ])
-    }, 450)
+    // Typing indicator while we "wait"
+    setStatus("typing")
+
+    // Build history snapshot safely (avoid stale state issues)
+    const historySnapshot = [...messages, userMsg]
+
+    try {
+      const replyText = await getFriendReply(historySnapshot, text)
+
+      const friendMsg: ChatMessage = {
+        id: `f-${Date.now()}`,
+        role: "friend",
+        text: replyText,
+        ts: Date.now(),
+      }
+
+      setMessages((prev) => [...prev, friendMsg])
+    } finally {
+      setStatus("online")
+    }
   }
 
   return (
@@ -78,7 +84,7 @@ export default function MainApp() {
 
         <button
           className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
-          onClick={() => alert("Settings (Task 36+)")}
+          onClick={() => alert("Settings (later)")}
         >
           Settings
         </button>
@@ -87,14 +93,11 @@ export default function MainApp() {
       {/* SECTION: Messages */}
       <div
         ref={scrollerRef}
-        className="h-[calc(100vh-140px-56px-72px)] overflow-y-auto px-4 py-4"
+        className="h-[calc(100vh-140px-56px-84px)] overflow-y-auto px-4 py-4"
       >
         <div className="space-y-3">
           {messages.map((m) => (
-            <div
-              key={m.id}
-              className={m.role === "user" ? "flex justify-end" : "flex justify-start"}
-            >
+            <div key={m.id} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
               <div
                 className={[
                   "max-w-[80%] rounded-2xl border px-3 py-2 text-sm",
@@ -110,7 +113,7 @@ export default function MainApp() {
         </div>
       </div>
 
-      {/* SECTION: Input */}
+                  {/* SECTION: Input */}
       <div className="border-t border-zinc-800 px-4 py-3">
         <div className="flex items-center gap-2">
           <input
@@ -130,8 +133,9 @@ export default function MainApp() {
             Send
           </button>
         </div>
+
         <div className="mt-2 text-xs text-zinc-500">
-          (Phase 4 will replace the placeholder response with real AI.)
+          (Mock replies for now. Phase 4 will connect real AI.)
         </div>
       </div>
     </div>
