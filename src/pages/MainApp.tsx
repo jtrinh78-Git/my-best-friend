@@ -326,118 +326,150 @@ const newChat = async () => {
   }
 }
   return (
-    <div className="min-h-[calc(100vh-140px)] rounded-2xl border border-zinc-800 bg-zinc-950">
-      {/* SECTION: Header */}
-      <div className="flex items-center justify-between gap-3 border-b border-zinc-800 px-4 py-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <select
-              className="max-w-[220px] truncate rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none"
-              value={activeConversationId ?? ""}
-              onChange={(e) => switchConversation(e.target.value)}
-              disabled={loading || conversations.length === 0}
-            >
-              {conversations.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.title || "My Best Friend"}
-                </option>
-              ))}
-            </select>
+  <div className="min-h-[calc(100vh-140px)] rounded-2xl border border-zinc-800 bg-zinc-950">
+    <div className="grid h-full grid-cols-1 md:grid-cols-[280px_1fr]">
+      {/* SECTION: Sidebar */}
+      <div className="border-b border-zinc-800 md:border-b-0 md:border-r">
+        <div className="flex items-center justify-between gap-2 border-b border-zinc-800 px-4 py-3">
+          <div className="text-sm font-semibold text-zinc-100">Chats</div>
 
-            <button
-  className="rounded-xl border border-zinc-800 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-900 disabled:opacity-50"
-  onClick={newChat}
-  disabled={loading}
->
-  New chat
-</button>
-
-<button
-  className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 disabled:opacity-50"
-  onClick={renameChat}
-  disabled={loading || !activeConversationId}
->
-  Rename
-</button>
-
-<button
-  className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-red-200 disabled:opacity-50"
-  onClick={deleteChat}
-  disabled={loading || !activeConversationId}
->
-  Delete
-</button>
-          </div>
-
-          <div className="mt-1 text-xs text-zinc-400">
-            {status === "online" ? "Online" : "Typing…"}{" "}
-            <span className="inline-block translate-y-[1px] text-green-400">●</span>
-          </div>
-        </div>
-
-        <button
-          className="shrink-0 rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
-          onClick={() => alert("Settings (later)")}
-        >
-          Settings
-        </button>
-      </div>
-
-      {/* SECTION: Body */}
-      <div
-        ref={scrollerRef}
-        className="h-[calc(100vh-140px-56px-84px)] overflow-y-auto px-4 py-4"
-      >
-        {loading ? (
-          <div className="text-sm text-zinc-300">Loading…</div>
-        ) : error ? (
-          <div className="text-sm text-red-300">Error: {error}</div>
-        ) : (
-          <div className="space-y-3">
-            {messages.map((m) => (
-              <div key={m.id} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
-                <div
-                  className={[
-                    "max-w-[80%] rounded-2xl border px-3 py-2 text-sm",
-                    m.role === "user"
-                      ? "border-zinc-700 bg-zinc-50 text-zinc-900"
-                      : "border-zinc-800 bg-zinc-900/40 text-zinc-100",
-                  ].join(" ")}
-                >
-                  {m.text}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* SECTION: Input */}
-      <div className="border-t border-zinc-800 px-4 py-3">
-        <div className="flex items-center gap-2">
-          <input
-            className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-zinc-50 outline-none"
-            placeholder="Message…"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") send()
-            }}
-            disabled={loading || !activeConversationId}
-          />
           <button
-            className="rounded-xl border border-zinc-800 bg-zinc-50 px-4 py-2 text-sm font-medium text-zinc-900 disabled:opacity-50"
-            disabled={!canSend || loading || !activeConversationId}
-            onClick={send}
+            className="rounded-xl border border-zinc-800 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-900 disabled:opacity-50"
+            onClick={newChat}
+            disabled={loading}
           >
-            Send
+            New
           </button>
         </div>
 
-        <div className="mt-2 text-xs text-zinc-500">
-          (Now you can create/switch chats. Next we’ll add rename + delete.)
+        <div className="max-h-[calc(100vh-140px-56px)] overflow-y-auto p-2">
+          {conversations.length === 0 ? (
+            <div className="px-3 py-2 text-sm text-zinc-400">No chats yet.</div>
+          ) : (
+            <div className="space-y-1">
+              {conversations.map((c) => {
+                const active = c.id === activeConversationId
+                return (
+                  <button
+                    key={c.id}
+                    onClick={() => switchConversation(c.id)}
+                    className={[
+                      "w-full rounded-xl border px-3 py-2 text-left text-sm",
+                      active
+                        ? "border-zinc-700 bg-zinc-900/60 text-zinc-100"
+                        : "border-transparent bg-transparent text-zinc-300 hover:border-zinc-800 hover:bg-zinc-900/30",
+                    ].join(" ")}
+                  >
+                    <div className="truncate">{c.title || "My Best Friend"}</div>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* SECTION: Chat panel */}
+      <div className="flex min-h-0 flex-col">
+        {/* SECTION: Header */}
+        <div className="flex items-center justify-between gap-3 border-b border-zinc-800 px-4 py-3">
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold text-zinc-100">
+              {activeConversationTitle || "My Best Friend"}
+            </div>
+
+            <div className="mt-1 text-xs text-zinc-400">
+              {status === "online" ? "Online" : "Typing…"}{" "}
+              <span className="inline-block translate-y-[1px] text-green-400">●</span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 disabled:opacity-50"
+              onClick={renameChat}
+              disabled={loading || !activeConversationId}
+            >
+              Rename
+            </button>
+
+            <button
+              className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-red-200 disabled:opacity-50"
+              onClick={deleteChat}
+              disabled={loading || !activeConversationId}
+            >
+              Delete
+            </button>
+
+            <button
+              className="shrink-0 rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
+              onClick={() => alert("Settings (later)")}
+            >
+              Settings
+            </button>
+          </div>
+        </div>
+
+        {/* SECTION: Body */}
+        <div
+          ref={scrollerRef}
+          className="min-h-0 flex-1 overflow-y-auto px-4 py-4"
+        >
+          {loading ? (
+            <div className="text-sm text-zinc-300">Loading…</div>
+          ) : error ? (
+            <div className="text-sm text-red-300">Error: {error}</div>
+          ) : (
+            <div className="space-y-3">
+              {messages.map((m) => (
+                <div
+                  key={m.id}
+                  className={m.role === "user" ? "flex justify-end" : "flex justify-start"}
+                >
+                  <div
+                    className={[
+                      "max-w-[80%] rounded-2xl border px-3 py-2 text-sm",
+                      m.role === "user"
+                        ? "border-zinc-700 bg-zinc-50 text-zinc-900"
+                        : "border-zinc-800 bg-zinc-900/40 text-zinc-100",
+                    ].join(" ")}
+                  >
+                    {m.text}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* SECTION: Input */}
+        <div className="border-t border-zinc-800 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <input
+              className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-zinc-50 outline-none"
+              placeholder="Message…"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") send()
+              }}
+              disabled={loading || !activeConversationId}
+            />
+            <button
+              className="rounded-xl border border-zinc-800 bg-zinc-50 px-4 py-2 text-sm font-medium text-zinc-900 disabled:opacity-50"
+              disabled={!canSend || loading || !activeConversationId}
+              onClick={send}
+            >
+              Send
+            </button>
+          </div>
+
+          <div className="mt-2 text-xs text-zinc-500">
+            (Now you can create/switch chats. Next we’ll add better sidebar polish.)
+          </div>
         </div>
       </div>
     </div>
+  </div>
   )
 }
