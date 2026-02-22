@@ -24,6 +24,7 @@ export default function App() {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [profileLoading, setProfileLoading] = useState(false)
   const [profileError, setProfileError] = useState<string | null>(null)
+  const [profileRefreshKey, setProfileRefreshKey] = useState(0)
 
   // SECTION: Auth session bootstrap + listener
   useEffect(() => {
@@ -91,7 +92,7 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [session?.user?.id])
+  }, [session?.user?.id, profileRefreshKey])
 
   // SECTION: Actions
   const canSendMagicLink = useMemo(() => email.trim().length > 3, [email])
@@ -185,7 +186,7 @@ export default function App() {
   {profileLoading ? null : profileError ? null : profile?.onboarding_completed ? (
     <MainApp />
   ) : (
-    <OnboardingScreen />
+    <OnboardingScreen onDone={() => setProfileRefreshKey((k) => k + 1)} />
   )}
 </div>
             </>

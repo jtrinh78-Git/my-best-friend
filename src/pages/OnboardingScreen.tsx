@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react"
 import { supabase } from "../lib/supabase"
 
-// SECTION: OnboardingScreen
+// SECTION: Types
 type OnboardingScreenProps = {
   onDone: () => void
 }
 
+// SECTION: OnboardingScreen
 export default function OnboardingScreen({ onDone }: OnboardingScreenProps) {
   const [firstName, setFirstName] = useState("")
   const [timezone, setTimezone] = useState<string>("")
@@ -19,7 +20,7 @@ export default function OnboardingScreen({ onDone }: OnboardingScreenProps) {
     setTimezone(tz || "UTC")
   }, [])
 
-  // SECTION: Timezone options (keep simple for now)
+  // SECTION: Timezone options
   const timezoneOptions = useMemo(() => {
     const base = [
       "UTC",
@@ -28,7 +29,6 @@ export default function OnboardingScreen({ onDone }: OnboardingScreenProps) {
       "America/Chicago",
       "America/New_York",
     ]
-
     const current = timezone && !base.includes(timezone) ? [timezone, ...base] : base
     return Array.from(new Set(current))
   }, [timezone])
@@ -44,7 +44,12 @@ export default function OnboardingScreen({ onDone }: OnboardingScreenProps) {
       return
     }
 
-    const { data: auth } = await supabase.auth.getUser()
+    const { data: auth, error: authError } = await supabase.auth.getUser()
+    if (authError) {
+      setError(authError.message)
+      return
+    }
+
     const userId = auth.user?.id
     if (!userId) {
       setError("No active session user found. Please sign out and sign in again.")
@@ -53,7 +58,7 @@ export default function OnboardingScreen({ onDone }: OnboardingScreenProps) {
 
     setSaving(true)
 
-    const { error: updateError } = await supabase
+    const { data, error: updateError, status } = await supabase
       .from("profiles")
       .update({
         first_name: cleanName,
@@ -63,6 +68,12 @@ export default function OnboardingScreen({ onDone }: OnboardingScreenProps) {
         updated_at: new Date().toISOString(),
       })
       .eq("id", userId)
+      .select("*")
+      .single()
+
+    console.log("Onboarding update status:", status)
+    console.log("Onboarding update error:", updateError)
+    console.log("Onboarding update data:", data)
 
     if (updateError) {
       setSaving(false)
@@ -70,8 +81,15 @@ export default function OnboardingScreen({ onDone }: OnboardingScreenProps) {
       return
     }
 
+    if (!data) {
+      setSaving(false)
+      setError("Update returned no data. Check RLS and table permissions.")
+      return
+    }
+
     setSaving(false)
     setSuccess("Saved. Loading your app…")
+    onDone()
   }
 
   return (
