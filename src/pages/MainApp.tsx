@@ -25,6 +25,20 @@ function toChatMessage(row: any): ChatMessage {
   }
 }
 
+function formatTime(ts: number) {
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(new Date(ts))
+  } catch {
+    const d = new Date(ts)
+    const hh = String(d.getHours())
+    const mm = String(d.getMinutes()).padStart(2, "0")
+    return `${hh}:${mm}`
+  }
+}
+
 // SECTION: MainApp
 export default function MainApp() {
   const [status, setStatus] = useState<"online" | "typing">("online")
@@ -217,7 +231,6 @@ export default function MainApp() {
       const list = await fetchConversations()
       setConversations(list)
 
-      // If we deleted the active chat, switch safely
       if (activeConversationId === convId) {
         const nextActive = list[0] ?? null
         if (!nextActive) {
@@ -276,7 +289,6 @@ export default function MainApp() {
     const text = input.trim()
     if (!text) return
 
-    // SECTION: Auto-title capture
     const hadUserBeforeSend = messages.some((m) => m.role === "user")
     const titleWasDefault = isDefaultConversationTitle(activeConversationTitle)
 
@@ -295,17 +307,14 @@ export default function MainApp() {
       const savedUser = await insertMessage("user", text)
       setMessages((prev) => prev.map((m) => (m.id === optimisticUserMsg.id ? savedUser : m)))
 
-      // SECTION: Auto-title on first user message
       if (!hadUserBeforeSend && titleWasDefault && activeConversationId) {
         const nextTitle = deriveConversationTitleFromFirstMessage(text)
-
         try {
           const updated = await updateConversationTitle(activeConversationId, nextTitle)
 
           setConversations((prev) =>
             prev.map((c) => (c.id === updated.id ? { ...c, title: updated.title } : c))
           )
-
           setActiveConversationTitle(updated.title)
         } catch (e) {
           console.error("Auto-title failed:", e)
@@ -350,7 +359,7 @@ export default function MainApp() {
         {/* SECTION: Chat panel */}
         <div className="flex min-h-0 flex-1 flex-col">
           {/* SECTION: Header */}
-          <div className="flex items-center justify-between gap-3 border-b border-zinc-800 px-4 py-3">
+          <div className="flex items-center justify-between gap-3 border-b border-zinc-800 px-5 py-4">
             <div className="min-w-0">
               <div className="truncate text-sm font-semibold text-zinc-100">
                 {activeConversationTitle || "My Best Friend"}
@@ -364,7 +373,7 @@ export default function MainApp() {
 
             <div className="flex items-center gap-2">
               <button
-                className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 disabled:opacity-50"
+                className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 transition hover:bg-zinc-900 disabled:opacity-50"
                 onClick={renameChatPrompt}
                 disabled={loading || !activeConversationId}
               >
@@ -372,7 +381,7 @@ export default function MainApp() {
               </button>
 
               <button
-                className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-red-200 disabled:opacity-50"
+                className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-red-200 transition hover:bg-zinc-900 disabled:opacity-50"
                 onClick={deleteChatPrompt}
                 disabled={loading || !activeConversationId}
               >
@@ -380,7 +389,7 @@ export default function MainApp() {
               </button>
 
               <button
-                className="shrink-0 rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
+                className="shrink-0 rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 transition hover:bg-zinc-900"
                 onClick={() => alert("Settings (later)")}
               >
                 Settings
@@ -389,36 +398,50 @@ export default function MainApp() {
           </div>
 
           {/* SECTION: Body */}
-          <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+          <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
             {loading ? (
               <div className="text-sm text-zinc-300">Loading…</div>
             ) : error ? (
               <div className="text-sm text-red-300">Error: {error}</div>
             ) : (
-              <div className="space-y-3">
-                {messages.map((m) => (
-                  <div key={m.id} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
-                    <div
-                      className={[
-                        "max-w-[80%] rounded-2xl border px-3 py-2 text-sm",
-                        m.role === "user"
-                          ? "border-zinc-700 bg-zinc-50 text-zinc-900"
-                          : "border-zinc-800 bg-zinc-900/40 text-zinc-100",
-                      ].join(" ")}
-                    >
-                      {m.text}
+              <div className="mx-auto w-full max-w-3xl space-y-4">
+                {messages.map((m) => {
+                  const isUser = m.role === "user"
+                  return (
+                    <div key={m.id} className={isUser ? "flex justify-end" : "flex justify-start"}>
+                      <div className={isUser ? "items-end" : "items-start"}>
+                        <div
+                          className={[
+                            "max-w-[520px] rounded-2xl border px-4 py-3 text-sm leading-relaxed",
+                            isUser
+                              ? "border-zinc-700 bg-zinc-50 text-zinc-900"
+                              : "border-zinc-800 bg-zinc-900/40 text-zinc-100",
+                          ].join(" ")}
+                        >
+                          {m.text}
+                        </div>
+
+                        <div
+                          className={[
+                            "mt-1 text-[11px]",
+                            isUser ? "text-right text-zinc-500" : "text-left text-zinc-500",
+                          ].join(" ")}
+                        >
+                          {formatTime(m.ts)}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>
 
           {/* SECTION: Input */}
-          <div className="border-t border-zinc-800 px-4 py-3">
-            <div className="flex items-center gap-2">
+          <div className="border-t border-zinc-800 px-5 py-4">
+            <div className="mx-auto flex w-full max-w-3xl items-center gap-2">
               <input
-                className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-zinc-50 outline-none"
+                className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-zinc-50 outline-none transition focus:border-zinc-600"
                 placeholder="Message…"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -428,7 +451,7 @@ export default function MainApp() {
                 disabled={loading || !activeConversationId}
               />
               <button
-                className="rounded-xl border border-zinc-800 bg-zinc-50 px-4 py-2 text-sm font-medium text-zinc-900 disabled:opacity-50"
+                className="rounded-xl border border-zinc-800 bg-zinc-50 px-4 py-3 text-sm font-medium text-zinc-900 transition hover:opacity-90 disabled:opacity-50"
                 disabled={!canSend || loading || !activeConversationId}
                 onClick={send}
               >
@@ -436,8 +459,8 @@ export default function MainApp() {
               </button>
             </div>
 
-            <div className="mt-2 text-xs text-zinc-500">
-              (Sidebar is now componentized. Next we’ll add timestamps + spacing polish.)
+            <div className="mx-auto mt-2 w-full max-w-3xl text-xs text-zinc-500">
+              (Timestamps added. Next: empty chat state polish + sidebar hover/active transitions.)
             </div>
           </div>
         </div>
