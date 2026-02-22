@@ -21,7 +21,6 @@ export default function App() {
 
     const { data } = supabase.auth.onAuthStateChange((_event, session) => {
       setSessionEmail(session?.user?.email ?? null)
-      // When auth changes, refetch profile
       setProfileRefreshKey((k) => k + 1)
     })
 
@@ -53,7 +52,9 @@ export default function App() {
 
         const { data, error } = await supabase
           .from("profiles")
-          .select("id, first_name, timezone, default_friend_name, onboarding_completed, onboarding_step, created_at, updated_at")
+          .select(
+            "id, first_name, timezone, default_friend_name, onboarding_completed, onboarding_step, created_at, updated_at"
+          )
           .eq("id", uid)
           .single()
 
@@ -77,37 +78,45 @@ export default function App() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl p-6">
-      <h1 className="text-3xl font-semibold text-zinc-50">My Best Friend</h1>
-
-      <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <div className="text-sm text-zinc-300">Signed in as</div>
-            <div className="font-medium text-zinc-100">{sessionEmail ?? "Unknown email"}</div>
+    <div className="min-h-screen bg-zinc-950 text-zinc-50">
+      <div className="mx-auto max-w-6xl px-6 py-6">
+        {/* // SECTION: Top bar */}
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="truncate text-3xl font-semibold">My Best Friend</h1>
+            <div className="mt-1 text-sm text-zinc-400">
+              Signed in as <span className="text-zinc-200">{sessionEmail ?? "Unknown email"}</span>
+            </div>
           </div>
 
           <button
-            className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-2 text-sm text-zinc-100"
+            className="shrink-0 rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-2 text-sm text-zinc-100 transition hover:bg-zinc-900"
             onClick={signOut}
           >
             Sign out
           </button>
         </div>
 
-        {profileLoading ? (
-          <div className="mt-6 text-sm text-zinc-300">Loading…</div>
-        ) : profileError ? (
-          <div className="mt-6 text-sm text-red-300">Error: {profileError}</div>
-        ) : profile?.onboarding_completed ? (
-          <div className="mt-6">
-            <MainApp />
-          </div>
-        ) : (
-          <div className="mt-6">
-            <OnboardingScreen onDone={() => setProfileRefreshKey((k) => k + 1)} />
-          </div>
-        )}
+        {/* // SECTION: Content */}
+        <div className="mt-6">
+          {profileLoading ? (
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4 text-sm text-zinc-300">
+              Loading…
+            </div>
+          ) : profileError ? (
+            <div className="rounded-2xl border border-red-900/60 bg-red-950/30 p-4 text-sm text-red-200">
+              Error: {profileError}
+            </div>
+          ) : profile?.onboarding_completed ? (
+            <div className="h-[calc(100vh-170px)]">
+              <MainApp />
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
+              <OnboardingScreen onDone={() => setProfileRefreshKey((k) => k + 1)} />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
