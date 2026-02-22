@@ -28,74 +28,70 @@ export default function MainApp() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string>("")
 
+  const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
   const [activeConversationTitle, setActiveConversationTitle] = useState<string>("My Best Friend")
 
   const canSend = useMemo(() => input.trim().length > 0, [input])
   const scrollerRef = useRef<HTMLDivElement | null>(null)
 
-  // SECTION: Ensure active conversation (fetch or create)
+  // SECTION: Session helper
+  const getUserId = async () => {
+    const { data } = await supabase.auth.getSession()
+    const uid = data.session?.user?.id
+    if (!uid) throw new Error("No active session found. Please sign in again.")
+    return uid
+  }
+
+  // SECTION: Fetch conversations list
+  const fetchConversations = async () => {
+    const { data, error: convErr } = await supabase
+      .from("conversations")
+      .select("id, title, created_at, updated_at")
+      .order("updated_at", { ascending: false })
+
+    if (convErr) throw convErr
+    return (data ?? []) as Conversation[]
+  }
+
+  // SECTION: Ensure active conversation on mount
   useEffect(() => {
     let cancelled = false
 
     ;(async () => {
-      setLoading(true)
-      setError("")
+      try {
+        setLoading(true)
+        setError("")
 
-      const { data: sessionData, error: sessionErr } = await supabase.auth.getSession()
-      if (sessionErr) {
-        if (!cancelled) setError(sessionErr.message)
-        if (!cancelled) setLoading(false)
-        return
-      }
+        await getUserId()
 
-      const userId = sessionData.session?.user?.id
-      if (!userId) {
-        if (!cancelled) setError("No active session found. Please sign in again.")
-        if (!cancelled) setLoading(false)
-        return
-      }
-
-      // 1) Fetch conversations
-      const { data: convs, error: convErr } = await supabase
-        .from("conversations")
-        .select("id, title, created_at, updated_at")
-        .order("updated_at", { ascending: false })
-        .limit(1)
-
-      if (cancelled) return
-
-      if (convErr) {
-        setError(convErr.message)
-        setLoading(false)
-        return
-      }
-
-      // 2) Pick first, or create one
-      let active: Conversation | null = (convs?.[0] as Conversation) ?? null
-
-      if (!active) {
-        const { data: created, error: createErr } = await supabase
-          .from("conversations")
-          .insert({ user_id: userId, title: "My Best Friend" })
-          .select("id, title, created_at, updated_at")
-          .single()
-
+        const list = await fetchConversations()
         if (cancelled) return
 
-        if (createErr) {
-          setError(createErr.message)
-          setLoading(false)
-          return
+        setConversations(list)
+
+        // Pick most recent or create one
+        let active = list[0] ?? null
+        if (!active) {
+          const userId = await getUserId()
+          const { data: created, error: createErr } = await supabase
+            .from("conversations")
+            .insert({ user_id: userId, title: "My Best Friend" })
+            .select("id, title, created_at, updated_at")
+            .single()
+
+          if (createErr) throw createErr
+          active = created as Conversation
+          setConversations([active])
         }
 
-        active = created as Conversation
+        setActiveConversationId(active.id)
+        setActiveConversationTitle(active.title)
+      } catch (e: any) {
+        if (!cancelled) setError(e?.message ?? "Something went wrong.")
+      } finally {
+        if (!cancelled) setLoading(false)
       }
-
-      setActiveConversationId(active.id)
-      setActiveConversationTitle(active.title)
-
-      setLoading(false)
     })()
 
     return () => {
@@ -111,40 +107,38 @@ export default function MainApp() {
     let cancelled = false
 
     ;(async () => {
-      setLoading(true)
-      setError("")
+      try {
+        setLoading(true)
+        setError("")
 
-      const { data, error: fetchErr } = await supabase
-        .from("messages")
-        .select("id, role, text, created_at")
-        .eq("conversation_id", convId)
-        .order("created_at", { ascending: true })
+        const { data, error: fetchErr } = await supabase
+          .from("messages")
+          .select("id, role, text, created_at")
+          .eq("conversation_id", convId)
+          .order("created_at", { ascending: true })
 
-      if (cancelled) return
+        if (cancelled) return
+        if (fetchErr) throw fetchErr
 
-      if (fetchErr) {
-        setError(fetchErr.message)
-        setLoading(false)
-        return
+        const mapped = (data ?? []).map(toChatMessage)
+
+        setMessages(
+          mapped.length === 0
+            ? [
+                {
+                  id: "seed-1",
+                  role: "friend",
+                  text: "Hey Joseph — I’m here. What do you want to focus on today?",
+                  ts: Date.now(),
+                },
+              ]
+            : mapped
+        )
+      } catch (e: any) {
+        if (!cancelled) setError(e?.message ?? "Something went wrong.")
+      } finally {
+        if (!cancelled) setLoading(false)
       }
-
-      const rows = data ?? []
-      const mapped = rows.map(toChatMessage)
-
-      if (mapped.length === 0) {
-        setMessages([
-          {
-            id: "seed-1",
-            role: "friend",
-            text: "Hey Joseph — I’m here. What do you want to focus on today?",
-            ts: Date.now(),
-          },
-        ])
-      } else {
-        setMessages(mapped)
-      }
-
-      setLoading(false)
     })()
 
     return () => {
@@ -161,10 +155,7 @@ export default function MainApp() {
 
   // SECTION: Insert message row
   const insertMessage = async (role: "user" | "friend", text: string) => {
-    const { data: sessionData } = await supabase.auth.getSession()
-    const userId = sessionData.session?.user?.id
-    if (!userId) throw new Error("No active session found.")
-
+    const userId = await getUserId()
     const convId = activeConversationId
     if (!convId) throw new Error("No active conversation found.")
 
@@ -206,11 +197,14 @@ export default function MainApp() {
       const savedFriend = await insertMessage("friend", replyText)
       setMessages((prev) => [...prev, savedFriend])
 
-      // bump conversation updated_at (so it stays most recent)
       await supabase
         .from("conversations")
         .update({ updated_at: new Date().toISOString() })
         .eq("id", activeConversationId)
+
+      // Refresh conversations order (so active stays on top)
+      const list = await fetchConversations()
+      setConversations(list)
     } catch (e: any) {
       setError(e?.message ?? "Something went wrong.")
     } finally {
@@ -218,20 +212,73 @@ export default function MainApp() {
     }
   }
 
+  // SECTION: Switch conversation
+  const switchConversation = (convId: string) => {
+    const conv = conversations.find((c) => c.id === convId)
+    setActiveConversationId(convId)
+    setActiveConversationTitle(conv?.title ?? "My Best Friend")
+  }
+
+  // SECTION: New chat
+  const newChat = async () => {
+    try {
+      setError("")
+      const userId = await getUserId()
+
+      const { data: created, error: createErr } = await supabase
+        .from("conversations")
+        .insert({ user_id: userId, title: "New chat" })
+        .select("id, title, created_at, updated_at")
+        .single()
+
+      if (createErr) throw createErr
+
+      const list = await fetchConversations()
+      setConversations(list)
+
+      setActiveConversationId(created.id)
+      setActiveConversationTitle(created.title)
+    } catch (e: any) {
+      setError(e?.message ?? "Something went wrong.")
+    }
+  }
+
   return (
     <div className="min-h-[calc(100vh-140px)] rounded-2xl border border-zinc-800 bg-zinc-950">
       {/* SECTION: Header */}
-      <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
-        <div>
-          <div className="text-sm text-zinc-300">{activeConversationTitle}</div>
-          <div className="mt-0.5 text-xs text-zinc-400">
+      <div className="flex items-center justify-between gap-3 border-b border-zinc-800 px-4 py-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <select
+              className="max-w-[220px] truncate rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none"
+              value={activeConversationId ?? ""}
+              onChange={(e) => switchConversation(e.target.value)}
+              disabled={loading || conversations.length === 0}
+            >
+              {conversations.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.title || "My Best Friend"}
+                </option>
+              ))}
+            </select>
+
+            <button
+              className="rounded-xl border border-zinc-800 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-900 disabled:opacity-50"
+              onClick={newChat}
+              disabled={loading}
+            >
+              New chat
+            </button>
+          </div>
+
+          <div className="mt-1 text-xs text-zinc-400">
             {status === "online" ? "Online" : "Typing…"}{" "}
             <span className="inline-block translate-y-[1px] text-green-400">●</span>
           </div>
         </div>
 
         <button
-          className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
+          className="shrink-0 rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
           onClick={() => alert("Settings (later)")}
         >
           Settings
@@ -290,7 +337,7 @@ export default function MainApp() {
         </div>
 
         <div className="mt-2 text-xs text-zinc-500">
-          (Now using conversations. Next we’ll add switching + “New chat”.)
+          (Now you can create/switch chats. Next we’ll add rename + delete.)
         </div>
       </div>
     </div>
