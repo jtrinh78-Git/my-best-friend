@@ -36,6 +36,28 @@ function formatTime(ts: number) {
   }
 }
 
+function startOfDay(ts: number) {
+  const d = new Date(ts)
+  d.setHours(0, 0, 0, 0)
+  return d.getTime()
+}
+
+function formatDayLabel(dayStartTs: number) {
+  const now = new Date()
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const yStart = todayStart - 24 * 60 * 60 * 1000
+
+  if (dayStartTs === todayStart) return "Today"
+  if (dayStartTs === yStart) return "Yesterday"
+
+  try {
+    return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(dayStartTs))
+  } catch {
+    const d = new Date(dayStartTs)
+    return `${d.getMonth() + 1}/${d.getDate()}`
+  }
+}
+
 // SECTION: MainApp
 export default function MainApp() {
   const [status, setStatus] = useState<"online" | "typing">("online")
@@ -51,10 +73,7 @@ export default function MainApp() {
   const canSend = useMemo(() => input.trim().length > 0, [input])
   const scrollerRef = useRef<HTMLDivElement | null>(null)
 
-  const isEmptyChat = useMemo(() => {
-    // premium empty: no user message yet (seed friend message only)
-    return !messages.some((m) => m.role === "user")
-  }, [messages])
+  const isEmptyChat = useMemo(() => !messages.some((m) => m.role === "user"), [messages])
 
   // SECTION: Session helper
   const getUserId = async () => {
@@ -209,9 +228,7 @@ export default function MainApp() {
         prev.map((c) => (c.id === updated.id ? { ...c, title: updated.title } : c))
       )
 
-      if (activeConversationId === convId) {
-        setActiveConversationTitle(updated.title)
-      }
+      if (activeConversationId === convId) setActiveConversationTitle(updated.title)
     } catch (e: any) {
       setError(e?.message ?? "Something went wrong.")
     }
@@ -349,6 +366,42 @@ export default function MainApp() {
     "Help me set 3 goals for this week and keep me accountable.",
   ]
 
+  // SECTION: Render model (date separators + grouping)
+  const timeline = useMemo(() => {
+    const items: Array<{ kind: "day"; key: string; label: string } | { kind: "msg"; msg: ChatMessage; showTime: boolean; tightTop: boolean }> = []
+
+    let lastDay: number | null = null
+
+    for (let i = 0; i < messages.length; i++) {
+      const m = messages[i]
+      const day = startOfDay(m.ts)
+
+      if (lastDay === null || day !== lastDay) {
+        items.push({
+          kind: "day",
+          key: `day-${day}`,
+          label: formatDayLabel(day),
+        })
+        lastDay = day
+      }
+
+      const prev = messages[i - 1]
+      const next = messages[i + 1]
+
+      const sameAsPrev = prev && prev.role === m.role && startOfDay(prev.ts) === day
+      const sameAsNext = next && next.role === m.role && startOfDay(next.ts) === day
+
+      items.push({
+        kind: "msg",
+        msg: m,
+        tightTop: !!sameAsPrev,          // closer to previous bubble if same role
+        showTime: !sameAsNext,           // only show time at end of a group
+      })
+    }
+
+    return items
+  }, [messages])
+
   return (
     <div className="min-h-[calc(100vh-140px)] overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950">
       <div className="flex h-full">
@@ -422,9 +475,7 @@ export default function MainApp() {
                       <button
                         key={s}
                         className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-left text-sm text-zinc-200 transition hover:bg-zinc-900"
-                        onClick={() => {
-                          setInput(s)
-                        }}
+                        onClick={() => setInput(s)}
                       >
                         {s}
                       </button>
@@ -436,7 +487,6 @@ export default function MainApp() {
                   </div>
                 </div>
 
-                {/* still show the seed message under it if you want to keep it visible */}
                 <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
                   <div className="text-xs text-zinc-500">Friend</div>
                   <div className="mt-2 text-sm text-zinc-200">
@@ -445,11 +495,24 @@ export default function MainApp() {
                 </div>
               </div>
             ) : (
-              <div className="mx-auto w-full max-w-3xl space-y-4">
-                {messages.map((m) => {
+              <div className="mx-auto w-full max-w-3xl">
+                {timeline.map((item) => {
+                  if (item.kind === "day") {
+                    return (
+                      <div key={item.key} className="my-5 flex items-center justify-center">
+                        <div className="rounded-full border border-zinc-800 bg-zinc-950 px-3 py-1 text-xs text-zinc-400">
+                          {item.label}
+                        </div>
+                      </div>
+                    )
+                  }
+
+                  const m = item.msg
                   const isUser = m.role === "user"
+                  const topGap = item.tightTop ? "mt-1" : "mt-4"
+
                   return (
-                    <div key={m.id} className={isUser ? "flex justify-end" : "flex justify-start"}>
+                    <div key={m.id} className={[isUser ? "flex justify-end" : "flex justify-start", topGap].join(" ")}>
                       <div className={isUser ? "items-end" : "items-start"}>
                         <div
                           className={[
@@ -462,14 +525,16 @@ export default function MainApp() {
                           {m.text}
                         </div>
 
-                        <div
-                          className={[
-                            "mt-1 text-[11px] text-zinc-500",
-                            isUser ? "text-right" : "text-left",
-                          ].join(" ")}
-                        >
-                          {formatTime(m.ts)}
-                        </div>
+                        {item.showTime && (
+                          <div
+                            className={[
+                              "mt-1 text-[11px] text-zinc-500",
+                              isUser ? "text-right" : "text-left",
+                            ].join(" ")}
+                          >
+                            {formatTime(m.ts)}
+                          </div>
+                        )}
                       </div>
                     </div>
                   )
@@ -501,7 +566,7 @@ export default function MainApp() {
             </div>
 
             <div className="mx-auto mt-2 w-full max-w-3xl text-xs text-zinc-500">
-              (Empty state added + sidebar transitions. Next: message grouping + date separators.)
+              (Grouping + day separators added. Next: subtle “typing bubble” + enter-to-send UX polish.)
             </div>
           </div>
         </div>
