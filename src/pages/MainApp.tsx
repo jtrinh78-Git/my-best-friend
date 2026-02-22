@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { supabase } from "../lib/supabase"
-import { ChatMessage, getFriendReply } from "../lib/chat"
+import { ChatMessage, getFriendReply, updateConversationTitle } from "../lib/chat"
+import {
+  deriveConversationTitleFromFirstMessage,
+  isDefaultConversationTitle,
+} from "../lib/conversationTitles"
+
 
 // SECTION: Types
 type Conversation = {
@@ -170,48 +175,68 @@ export default function MainApp() {
   }
 
   // SECTION: Send message
-  const send = async () => {
-    const text = input.trim()
-    if (!text) return
+const send = async () => {
+  const text = input.trim()
+  if (!text) return
 
-    setInput("")
-    setError("")
+  // SECTION: Auto-title capture
+  const hadUserBeforeSend = messages.some((m) => m.role === "user")
+  const titleWasDefault = isDefaultConversationTitle(activeConversationTitle)
 
-    const optimisticUserMsg: ChatMessage = {
-      id: `local-u-${Date.now()}`,
-      role: "user",
-      text,
-      ts: Date.now(),
-    }
-    setMessages((prev) => [...prev, optimisticUserMsg])
+  setInput("")
+  setError("")
 
-    try {
-      const savedUser = await insertMessage("user", text)
-      setMessages((prev) => prev.map((m) => (m.id === optimisticUserMsg.id ? savedUser : m)))
-
-      setStatus("typing")
-
-      const historySnapshot = [...messages.filter((m) => !m.id.startsWith("local-")), savedUser]
-      const replyText = await getFriendReply(historySnapshot, text)
-
-      const savedFriend = await insertMessage("friend", replyText)
-      setMessages((prev) => [...prev, savedFriend])
-
-      await supabase
-        .from("conversations")
-        .update({ updated_at: new Date().toISOString() })
-        .eq("id", activeConversationId)
-
-      // Refresh conversations order (so active stays on top)
-      const list = await fetchConversations()
-      setConversations(list)
-    } catch (e: any) {
-      setError(e?.message ?? "Something went wrong.")
-    } finally {
-      setStatus("online")
-    }
+  const optimisticUserMsg: ChatMessage = {
+    id: `local-u-${Date.now()}`,
+    role: "user",
+    text,
+    ts: Date.now(),
   }
+  setMessages((prev) => [...prev, optimisticUserMsg])
 
+  try {
+    const savedUser = await insertMessage("user", text)
+    setMessages((prev) => prev.map((m) => (m.id === optimisticUserMsg.id ? savedUser : m)))
+
+    // SECTION: Auto-title on first user message
+    if (!hadUserBeforeSend && titleWasDefault && activeConversationId) {
+      const nextTitle = deriveConversationTitleFromFirstMessage(text)
+
+      try {
+        const updated = await updateConversationTitle(activeConversationId, nextTitle)
+
+        setConversations((prev) =>
+          prev.map((c) => (c.id === updated.id ? { ...c, title: updated.title } : c))
+        )
+
+        setActiveConversationTitle(updated.title)
+      } catch (e) {
+        console.error("Auto-title failed:", e)
+      }
+    }
+
+    setStatus("typing")
+
+    const historySnapshot = [...messages.filter((m) => !m.id.startsWith("local-")), savedUser]
+    const replyText = await getFriendReply(historySnapshot, text)
+
+    const savedFriend = await insertMessage("friend", replyText)
+    setMessages((prev) => [...prev, savedFriend])
+
+    await supabase
+      .from("conversations")
+      .update({ updated_at: new Date().toISOString() })
+      .eq("id", activeConversationId)
+
+    // Refresh conversations order (so active stays on top)
+    const list = await fetchConversations()
+    setConversations(list)
+  } catch (e: any) {
+    setError(e?.message ?? "Something went wrong.")
+  } finally {
+    setStatus("online")
+  }
+}
   // SECTION: Switch conversation
   const switchConversation = (convId: string) => {
     const conv = conversations.find((c) => c.id === convId)
@@ -219,30 +244,87 @@ export default function MainApp() {
     setActiveConversationTitle(conv?.title ?? "My Best Friend")
   }
 
-  // SECTION: New chat
-  const newChat = async () => {
-    try {
-      setError("")
-      const userId = await getUserId()
+  // SECTION: Rename chat
+const renameChat = async () => {
+  try {
+    setError("")
+    if (!activeConversationId) return
 
-      const { data: created, error: createErr } = await supabase
-        .from("conversations")
-        .insert({ user_id: userId, title: "New chat" })
-        .select("id, title, created_at, updated_at")
-        .single()
+    const current = conversations.find((c) => c.id === activeConversationId)?.title ?? ""
+    const next = window.prompt("Rename chat", current)?.trim()
+    if (!next) return
 
-      if (createErr) throw createErr
+    const updated = await updateConversationTitle(activeConversationId, next)
 
-      const list = await fetchConversations()
-      setConversations(list)
-
-      setActiveConversationId(created.id)
-      setActiveConversationTitle(created.title)
-    } catch (e: any) {
-      setError(e?.message ?? "Something went wrong.")
-    }
+    setConversations((prev) =>
+      prev.map((c) => (c.id === updated.id ? { ...c, title: updated.title } : c))
+    )
+    setActiveConversationTitle(updated.title)
+  } catch (e: any) {
+    setError(e?.message ?? "Something went wrong.")
   }
+}
+// SECTION: Delete chat
+const deleteChat = async () => {
+  try {
+    setError("")
+    if (!activeConversationId) return
 
+    const ok = window.confirm(
+      "Delete this chat?\n\nThis will permanently delete the conversation and all messages."
+    )
+    if (!ok) return
+
+    const deletingId = activeConversationId
+
+    const { error: delErr } = await supabase
+      .from("conversations")
+      .delete()
+      .eq("id", deletingId)
+
+    if (delErr) throw delErr
+
+    // Refresh list after delete
+    const list = await fetchConversations()
+    setConversations(list)
+
+    // If we deleted the active chat, switch safely
+    const nextActive = list[0] ?? null
+    if (!nextActive) {
+      // No chats left — auto create a new one
+      await newChat()
+      return
+    }
+
+    setActiveConversationId(nextActive.id)
+    setActiveConversationTitle(nextActive.title)
+  } catch (e: any) {
+    setError(e?.message ?? "Something went wrong.")
+  }
+}
+// SECTION: New chat
+const newChat = async () => {
+  try {
+    setError("")
+    const userId = await getUserId()
+
+    const { data: created, error: createErr } = await supabase
+      .from("conversations")
+      .insert({ user_id: userId, title: "New Chat" })
+      .select("id, title, created_at, updated_at")
+      .single()
+
+    if (createErr) throw createErr
+
+    const list = await fetchConversations()
+    setConversations(list)
+
+    setActiveConversationId(created.id)
+    setActiveConversationTitle(created.title)
+  } catch (e: any) {
+    setError(e?.message ?? "Something went wrong.")
+  }
+}
   return (
     <div className="min-h-[calc(100vh-140px)] rounded-2xl border border-zinc-800 bg-zinc-950">
       {/* SECTION: Header */}
@@ -263,12 +345,28 @@ export default function MainApp() {
             </select>
 
             <button
-              className="rounded-xl border border-zinc-800 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-900 disabled:opacity-50"
-              onClick={newChat}
-              disabled={loading}
-            >
-              New chat
-            </button>
+  className="rounded-xl border border-zinc-800 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-900 disabled:opacity-50"
+  onClick={newChat}
+  disabled={loading}
+>
+  New chat
+</button>
+
+<button
+  className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 disabled:opacity-50"
+  onClick={renameChat}
+  disabled={loading || !activeConversationId}
+>
+  Rename
+</button>
+
+<button
+  className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-red-200 disabled:opacity-50"
+  onClick={deleteChat}
+  disabled={loading || !activeConversationId}
+>
+  Delete
+</button>
           </div>
 
           <div className="mt-1 text-xs text-zinc-400">

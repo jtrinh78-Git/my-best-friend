@@ -1,3 +1,4 @@
+import { supabase } from "./supabase"
 // SECTION: Types
 export type ChatMessage = {
   id: string
@@ -25,4 +26,25 @@ export async function getFriendReply(
   }
 
   return "I’m with you. Tell me more—what’s the main thing on your mind?"
+}
+// SECTION: Conversation title updates
+
+export async function updateConversationTitle(
+  conversationId: string,
+  title: string
+) {
+  const trimmed = title.trim()
+
+  const { data, error } = await supabase
+    .from("conversations")
+    .update({
+      title: trimmed,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", conversationId)
+    .select("id,title,updated_at")
+    .single()
+
+  if (error) throw error
+  return data
 }
