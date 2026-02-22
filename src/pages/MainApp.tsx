@@ -58,6 +58,24 @@ function formatDayLabel(dayStartTs: number) {
   }
 }
 
+// SECTION: TypingBubble
+function TypingBubble() {
+  return (
+    <div className="flex justify-start mt-4">
+      <div className="items-start">
+        <div className="max-w-[520px] rounded-2xl border border-zinc-800 bg-zinc-900/40 px-4 py-3">
+          <div className="flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-zinc-500 animate-bounce [animation-delay:-0.2s]" />
+            <span className="h-2 w-2 rounded-full bg-zinc-500 animate-bounce [animation-delay:-0.1s]" />
+            <span className="h-2 w-2 rounded-full bg-zinc-500 animate-bounce" />
+          </div>
+        </div>
+        <div className="mt-1 text-[11px] text-zinc-500">Typing…</div>
+      </div>
+    </div>
+  )
+}
+
 // SECTION: MainApp
 export default function MainApp() {
   const [status, setStatus] = useState<"online" | "typing">("online")
@@ -71,6 +89,13 @@ export default function MainApp() {
   const [activeConversationTitle, setActiveConversationTitle] = useState<string>("My Best Friend")
 
   const canSend = useMemo(() => input.trim().length > 0, [input])
+  const canSendNow = useMemo(() => canSend && !loading && !!activeConversationId && status !== "typing", [
+    canSend,
+    loading,
+    activeConversationId,
+    status,
+  ])
+
   const scrollerRef = useRef<HTMLDivElement | null>(null)
 
   const isEmptyChat = useMemo(() => !messages.some((m) => m.role === "user"), [messages])
@@ -190,7 +215,7 @@ export default function MainApp() {
     const el = scrollerRef.current
     if (!el) return
     el.scrollTop = el.scrollHeight
-  }, [messages.length])
+  }, [messages.length, status])
 
   // SECTION: Insert message row
   const insertMessage = async (role: "user" | "friend", text: string) => {
@@ -305,6 +330,7 @@ export default function MainApp() {
   const send = async (forcedText?: string) => {
     const text = (forcedText ?? input).trim()
     if (!text) return
+    if (status === "typing") return
 
     const hadUserBeforeSend = messages.some((m) => m.role === "user")
     const titleWasDefault = isDefaultConversationTitle(activeConversationTitle)
@@ -366,9 +392,12 @@ export default function MainApp() {
     "Help me set 3 goals for this week and keep me accountable.",
   ]
 
-  // SECTION: Render model (date separators + grouping)
+  // SECTION: Timeline render model
   const timeline = useMemo(() => {
-    const items: Array<{ kind: "day"; key: string; label: string } | { kind: "msg"; msg: ChatMessage; showTime: boolean; tightTop: boolean }> = []
+    const items: Array<
+      | { kind: "day"; key: string; label: string }
+      | { kind: "msg"; msg: ChatMessage; showTime: boolean; tightTop: boolean }
+    > = []
 
     let lastDay: number | null = null
 
@@ -377,11 +406,7 @@ export default function MainApp() {
       const day = startOfDay(m.ts)
 
       if (lastDay === null || day !== lastDay) {
-        items.push({
-          kind: "day",
-          key: `day-${day}`,
-          label: formatDayLabel(day),
-        })
+        items.push({ kind: "day", key: `day-${day}`, label: formatDayLabel(day) })
         lastDay = day
       }
 
@@ -394,13 +419,21 @@ export default function MainApp() {
       items.push({
         kind: "msg",
         msg: m,
-        tightTop: !!sameAsPrev,          // closer to previous bubble if same role
-        showTime: !sameAsNext,           // only show time at end of a group
+        tightTop: !!sameAsPrev,
+        showTime: !sameAsNext,
       })
     }
 
     return items
   }, [messages])
+
+  // SECTION: Input key handling (Enter sends, Shift+Enter newline)
+  const onInputKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key !== "Enter") return
+    if (e.shiftKey) return
+    e.preventDefault()
+    if (canSendNow) send()
+  }
 
   return (
     <div className="min-h-[calc(100vh-140px)] overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950">
@@ -482,9 +515,7 @@ export default function MainApp() {
                     ))}
                   </div>
 
-                  <div className="mt-4 text-xs text-zinc-500">
-                    Tip: hit Enter to send. (These suggestions just fill the input — you can edit.)
-                  </div>
+                  <div className="mt-4 text-xs text-zinc-500">Tip: Shift+Enter for a new line.</div>
                 </div>
 
                 <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
@@ -512,7 +543,10 @@ export default function MainApp() {
                   const topGap = item.tightTop ? "mt-1" : "mt-4"
 
                   return (
-                    <div key={m.id} className={[isUser ? "flex justify-end" : "flex justify-start", topGap].join(" ")}>
+                    <div
+                      key={m.id}
+                      className={[isUser ? "flex justify-end" : "flex justify-start", topGap].join(" ")}
+                    >
                       <div className={isUser ? "items-end" : "items-start"}>
                         <div
                           className={[
@@ -539,34 +573,35 @@ export default function MainApp() {
                     </div>
                   )
                 })}
+
+                {status === "typing" && <TypingBubble />}
               </div>
             )}
           </div>
 
           {/* SECTION: Input */}
           <div className="border-t border-zinc-800 px-5 py-4">
-            <div className="mx-auto flex w-full max-w-3xl items-center gap-2">
-              <input
-                className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-zinc-50 outline-none transition focus:border-zinc-600"
-                placeholder="Message…"
+            <div className="mx-auto w-full max-w-3xl">
+              <textarea
+                className="w-full resize-none rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-zinc-50 outline-none transition focus:border-zinc-600"
+                placeholder={status === "typing" ? "Waiting for reply…" : "Message…"}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") send()
-                }}
+                onKeyDown={onInputKeyDown}
+                rows={2}
                 disabled={loading || !activeConversationId}
               />
-              <button
-                className="rounded-xl border border-zinc-800 bg-zinc-50 px-4 py-3 text-sm font-medium text-zinc-900 transition hover:opacity-90 disabled:opacity-50"
-                disabled={!canSend || loading || !activeConversationId}
-                onClick={() => send()}
-              >
-                Send
-              </button>
-            </div>
 
-            <div className="mx-auto mt-2 w-full max-w-3xl text-xs text-zinc-500">
-              (Grouping + day separators added. Next: subtle “typing bubble” + enter-to-send UX polish.)
+              <div className="mt-2 flex items-center justify-between">
+                <div className="text-xs text-zinc-500">Enter to send • Shift+Enter for a new line</div>
+                <button
+                  className="rounded-xl border border-zinc-800 bg-zinc-50 px-4 py-2 text-sm font-medium text-zinc-900 transition hover:opacity-90 disabled:opacity-50"
+                  disabled={!canSendNow}
+                  onClick={() => send()}
+                >
+                  {status === "typing" ? "Sending…" : "Send"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
