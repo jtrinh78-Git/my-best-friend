@@ -27,10 +27,7 @@ function toChatMessage(row: any): ChatMessage {
 
 function formatTime(ts: number) {
   try {
-    return new Intl.DateTimeFormat(undefined, {
-      hour: "numeric",
-      minute: "2-digit",
-    }).format(new Date(ts))
+    return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(ts))
   } catch {
     const d = new Date(ts)
     const hh = String(d.getHours())
@@ -53,6 +50,11 @@ export default function MainApp() {
 
   const canSend = useMemo(() => input.trim().length > 0, [input])
   const scrollerRef = useRef<HTMLDivElement | null>(null)
+
+  const isEmptyChat = useMemo(() => {
+    // premium empty: no user message yet (seed friend message only)
+    return !messages.some((m) => m.role === "user")
+  }, [messages])
 
   // SECTION: Session helper
   const getUserId = async () => {
@@ -89,7 +91,6 @@ export default function MainApp() {
 
         setConversations(list)
 
-        // Pick most recent or create one
         let active = list[0] ?? null
         if (!active) {
           const userId = await getUserId()
@@ -195,7 +196,7 @@ export default function MainApp() {
     setActiveConversationTitle(conv?.title ?? "My Best Friend")
   }
 
-  // SECTION: Rename conversation (used by Sidebar + header)
+  // SECTION: Rename conversation
   const renameConversation = async (convId: string, nextTitle: string) => {
     try {
       setError("")
@@ -216,7 +217,7 @@ export default function MainApp() {
     }
   }
 
-  // SECTION: Delete conversation (safe switching)
+  // SECTION: Delete conversation
   const deleteConversation = async (convId: string) => {
     try {
       setError("")
@@ -269,7 +270,7 @@ export default function MainApp() {
     }
   }
 
-  // SECTION: Header rename button (prompt)
+  // SECTION: Header prompt actions
   const renameChatPrompt = async () => {
     if (!activeConversationId) return
     const current = conversations.find((c) => c.id === activeConversationId)?.title ?? ""
@@ -278,21 +279,20 @@ export default function MainApp() {
     await renameConversation(activeConversationId, next)
   }
 
-  // SECTION: Header delete button
   const deleteChatPrompt = async () => {
     if (!activeConversationId) return
     await deleteConversation(activeConversationId)
   }
 
   // SECTION: Send message
-  const send = async () => {
-    const text = input.trim()
+  const send = async (forcedText?: string) => {
+    const text = (forcedText ?? input).trim()
     if (!text) return
 
     const hadUserBeforeSend = messages.some((m) => m.role === "user")
     const titleWasDefault = isDefaultConversationTitle(activeConversationTitle)
 
-    setInput("")
+    if (!forcedText) setInput("")
     setError("")
 
     const optimisticUserMsg: ChatMessage = {
@@ -311,7 +311,6 @@ export default function MainApp() {
         const nextTitle = deriveConversationTitleFromFirstMessage(text)
         try {
           const updated = await updateConversationTitle(activeConversationId, nextTitle)
-
           setConversations((prev) =>
             prev.map((c) => (c.id === updated.id ? { ...c, title: updated.title } : c))
           )
@@ -342,6 +341,13 @@ export default function MainApp() {
       setStatus("online")
     }
   }
+
+  // SECTION: Empty-state suggestions
+  const suggestions = [
+    "Help me plan my day — I want to be productive but calm.",
+    "I’m feeling stressed. Talk me down and help me reset.",
+    "Help me set 3 goals for this week and keep me accountable.",
+  ]
 
   return (
     <div className="min-h-[calc(100vh-140px)] overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950">
@@ -403,6 +409,41 @@ export default function MainApp() {
               <div className="text-sm text-zinc-300">Loading…</div>
             ) : error ? (
               <div className="text-sm text-red-300">Error: {error}</div>
+            ) : isEmptyChat ? (
+              <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
+                <div className="rounded-2xl border border-zinc-800 bg-zinc-900/20 p-6">
+                  <div className="text-base font-semibold text-zinc-100">Start here</div>
+                  <div className="mt-2 text-sm leading-relaxed text-zinc-400">
+                    Tell me what you’re dealing with today. I’ll help you get clarity, set a plan, and stay calm while you execute.
+                  </div>
+
+                  <div className="mt-4 grid gap-2">
+                    {suggestions.map((s) => (
+                      <button
+                        key={s}
+                        className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-left text-sm text-zinc-200 transition hover:bg-zinc-900"
+                        onClick={() => {
+                          setInput(s)
+                        }}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="mt-4 text-xs text-zinc-500">
+                    Tip: hit Enter to send. (These suggestions just fill the input — you can edit.)
+                  </div>
+                </div>
+
+                {/* still show the seed message under it if you want to keep it visible */}
+                <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
+                  <div className="text-xs text-zinc-500">Friend</div>
+                  <div className="mt-2 text-sm text-zinc-200">
+                    Hey Joseph — I’m here. What do you want to focus on today?
+                  </div>
+                </div>
+              </div>
             ) : (
               <div className="mx-auto w-full max-w-3xl space-y-4">
                 {messages.map((m) => {
@@ -423,8 +464,8 @@ export default function MainApp() {
 
                         <div
                           className={[
-                            "mt-1 text-[11px]",
-                            isUser ? "text-right text-zinc-500" : "text-left text-zinc-500",
+                            "mt-1 text-[11px] text-zinc-500",
+                            isUser ? "text-right" : "text-left",
                           ].join(" ")}
                         >
                           {formatTime(m.ts)}
@@ -453,14 +494,14 @@ export default function MainApp() {
               <button
                 className="rounded-xl border border-zinc-800 bg-zinc-50 px-4 py-3 text-sm font-medium text-zinc-900 transition hover:opacity-90 disabled:opacity-50"
                 disabled={!canSend || loading || !activeConversationId}
-                onClick={send}
+                onClick={() => send()}
               >
                 Send
               </button>
             </div>
 
             <div className="mx-auto mt-2 w-full max-w-3xl text-xs text-zinc-500">
-              (Timestamps added. Next: empty chat state polish + sidebar hover/active transitions.)
+              (Empty state added + sidebar transitions. Next: message grouping + date separators.)
             </div>
           </div>
         </div>

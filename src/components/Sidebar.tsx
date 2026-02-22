@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 
+// SECTION: Types
 type Conversation = {
   id: string
   title: string | null
@@ -15,6 +16,7 @@ type Props = {
   onDelete: (id: string) => Promise<void> | void
 }
 
+// SECTION: Sidebar
 export default function Sidebar({
   conversations,
   activeConversationId,
@@ -28,7 +30,6 @@ export default function Sidebar({
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null)
 
   const ordered = useMemo(() => {
-    // You said you already fetch ordered by updated_at; this is a safety fallback.
     return [...conversations].sort((a, b) => {
       const at = a.updated_at ? new Date(a.updated_at).getTime() : 0
       const bt = b.updated_at ? new Date(b.updated_at).getTime() : 0
@@ -37,9 +38,9 @@ export default function Sidebar({
   }, [conversations])
 
   useEffect(() => {
-    const close = () => setMenuOpenId(null)
-    window.addEventListener("click", close)
-    return () => window.removeEventListener("click", close)
+    const onDocClick = () => setMenuOpenId(null)
+    window.addEventListener("click", onDocClick)
+    return () => window.removeEventListener("click", onDocClick)
   }, [])
 
   const startRename = (c: Conversation) => {
@@ -56,28 +57,28 @@ export default function Sidebar({
   }
 
   return (
-    <aside className="h-full w-72 shrink-0 border-r border-zinc-200 bg-white">
-      {/* // SECTION: Header */}
-      <div className="flex items-center justify-between gap-2 px-4 py-3">
+    <aside className="h-full w-72 shrink-0 border-r border-zinc-800 bg-zinc-950">
+      {/* SECTION: Header */}
+      <div className="flex items-center justify-between gap-2 border-b border-zinc-800 px-4 py-4">
         <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-zinc-900">My Best Friend</div>
-          <div className="truncate text-xs text-zinc-500">Chats</div>
+          <div className="truncate text-sm font-semibold text-zinc-100">Chats</div>
+          <div className="truncate text-xs text-zinc-500">Your conversations</div>
         </div>
 
         <button
           onClick={onNewChat}
-          className="rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white transition hover:opacity-90 active:opacity-80"
+          className="rounded-xl border border-zinc-800 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-900 transition hover:opacity-90 active:opacity-80"
         >
           New
         </button>
       </div>
 
-      {/* // SECTION: List */}
-      <div className="px-2 pb-3">
+      {/* SECTION: List */}
+      <div className="px-2 py-3">
         {ordered.length === 0 ? (
-          <div className="px-3 py-6 text-sm text-zinc-500">
-            No conversations yet.
-            <div className="mt-2 text-xs text-zinc-400">Click “New” to start your first chat.</div>
+          <div className="px-3 py-6 text-sm text-zinc-400">
+            No chats yet.
+            <div className="mt-2 text-xs text-zinc-500">Click “New” to start.</div>
           </div>
         ) : (
           <ul className="space-y-1">
@@ -89,19 +90,29 @@ export default function Sidebar({
                   <div
                     className={[
                       "group relative flex items-center gap-2 rounded-xl px-3 py-2 transition",
-                      isActive ? "bg-zinc-900 text-white" : "bg-transparent text-zinc-900 hover:bg-zinc-100",
+                      "hover:bg-zinc-900/40",
+                      isActive ? "bg-zinc-900/60" : "bg-transparent",
                     ].join(" ")}
                   >
+                    {/* active bar */}
+                    <span
+                      className={[
+                        "absolute left-0 top-2 bottom-2 w-1 rounded-full transition-opacity",
+                        isActive ? "bg-zinc-50 opacity-100" : "bg-transparent opacity-0 group-hover:opacity-30",
+                      ].join(" ")}
+                    />
+
                     <button
                       onClick={() => onSelect(c.id)}
                       className="flex min-w-0 flex-1 items-center gap-2 text-left"
                     >
                       <span
                         className={[
-                          "inline-block h-2 w-2 rounded-full",
-                          isActive ? "bg-white" : "bg-zinc-300 group-hover:bg-zinc-400",
+                          "inline-block h-2 w-2 rounded-full transition",
+                          isActive ? "bg-zinc-50" : "bg-zinc-600 group-hover:bg-zinc-400",
                         ].join(" ")}
                       />
+
                       {renamingId === c.id ? (
                         <input
                           value={renameValue}
@@ -112,14 +123,11 @@ export default function Sidebar({
                           }}
                           onBlur={() => submitRename(c.id)}
                           autoFocus
-                          className={[
-                            "w-full rounded-lg px-2 py-1 text-sm outline-none",
-                            isActive ? "bg-white/10 text-white placeholder-white/60" : "bg-white text-zinc-900",
-                          ].join(" ")}
+                          className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1 text-sm text-zinc-100 outline-none focus:border-zinc-500"
                           placeholder="Conversation title"
                         />
                       ) : (
-                        <span className="truncate text-sm font-medium">
+                        <span className={["truncate text-sm font-medium", isActive ? "text-zinc-100" : "text-zinc-200"].join(" ")}>
                           {(c.title ?? "New chat").trim() || "New chat"}
                         </span>
                       )}
@@ -134,9 +142,7 @@ export default function Sidebar({
                         }}
                         className={[
                           "rounded-lg px-2 py-1 text-xs transition",
-                          isActive
-                            ? "text-white/80 hover:bg-white/10 hover:text-white"
-                            : "text-zinc-500 hover:bg-zinc-200 hover:text-zinc-800",
+                          "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100",
                         ].join(" ")}
                         aria-label="Conversation menu"
                       >
@@ -146,16 +152,16 @@ export default function Sidebar({
                       {menuOpenId === c.id && (
                         <div
                           onClick={(e) => e.stopPropagation()}
-                          className="absolute right-0 top-9 z-20 w-40 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-lg"
+                          className="absolute right-0 top-9 z-20 w-40 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 shadow-lg"
                         >
                           <button
-                            className="w-full px-3 py-2 text-left text-sm text-zinc-900 hover:bg-zinc-100"
+                            className="w-full px-3 py-2 text-left text-sm text-zinc-100 hover:bg-zinc-900"
                             onClick={() => startRename(c)}
                           >
                             Rename
                           </button>
                           <button
-                            className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+                            className="w-full px-3 py-2 text-left text-sm text-red-200 hover:bg-red-950/30"
                             onClick={async () => {
                               setMenuOpenId(null)
                               await onDelete(c.id)
