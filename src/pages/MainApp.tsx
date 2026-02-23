@@ -430,7 +430,7 @@ export default function MainApp() {
       setStatus("typing")
 
       const historySnapshot = [...messages.filter((m) => !m.id.startsWith("local-")), savedUser]
-      const replyText = await getFriendReply(historySnapshot, text)
+      const replyText = await getFriendReply(historySnapshot, text, activeConversationId)
 
       const savedFriend = await insertMessage("friend", replyText)
       setMessages((prev) => [...prev, savedFriend])
