@@ -51,7 +51,6 @@ export async function fetchTopMemories(opts?: {
     )
     .eq("user_id", uid)
 
-  // optional: conversation-scoped memories
   if (conversationId) {
     q = q.eq("conversation_id", conversationId)
   }
@@ -66,7 +65,7 @@ export async function fetchTopMemories(opts?: {
   return (data ?? []) as MemoryRow[]
 }
 
-// SECTION: Touch memories (record access)
+// SECTION: Touch memories
 export async function touchMemories(ids: string[]): Promise<void> {
   if (!ids.length) return
   const uid = await requireUserId()
@@ -109,15 +108,24 @@ export async function createMemory(input: CreateMemoryInput): Promise<MemoryRow>
   return data as MemoryRow
 }
 
-// SECTION: Delete memory
-export async function deleteMemory(memoryId: string): Promise<void> {
+// SECTION: Pin/unpin
+export async function setMemoryPinned(memoryId: string, pinned: boolean): Promise<void> {
   const uid = await requireUserId()
 
   const { error } = await supabase
     .from("memories")
-    .delete()
+    .update({ pinned })
     .eq("user_id", uid)
     .eq("id", memoryId)
+
+  if (error) throw error
+}
+
+// SECTION: Delete memory
+export async function deleteMemory(memoryId: string): Promise<void> {
+  const uid = await requireUserId()
+
+  const { error } = await supabase.from("memories").delete().eq("user_id", uid).eq("id", memoryId)
 
   if (error) throw error
 }
