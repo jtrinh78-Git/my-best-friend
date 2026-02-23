@@ -8,6 +8,8 @@ type SmartMemory = {
   pinned: boolean
   importance: number | null
   conversation_id: string | null
+  created_at?: string | null
+  updated_at?: string | null
 }
 
 const MBF_STOPWORDS = new Set([
@@ -48,7 +50,7 @@ async function mbfFetchMemoryCandidates(conversationId?: string | null): Promise
 
   const globalPinnedQ = supabase
     .from("memories")
-    .select("id, content, pinned, importance, conversation_id")
+    .select("id, content, pinned, importance, conversation_id, created_at, updated_at")
     .eq("user_id", userId)
     .is("conversation_id", null)
     .eq("pinned", true)
@@ -59,7 +61,7 @@ async function mbfFetchMemoryCandidates(conversationId?: string | null): Promise
   const convoScopedQ = conversationId
     ? supabase
         .from("memories")
-        .select("id, content, pinned, importance, conversation_id")
+        .select("id, content, pinned, importance, conversation_id, created_at, updated_at")
         .eq("user_id", userId)
         .eq("conversation_id", conversationId)
         .order("pinned", { ascending: false })
@@ -84,8 +86,15 @@ async function mbfFetchMemoryCandidates(conversationId?: string | null): Promise
   }
 }
 
-function mbfRankMemories(userMessage: string, globalPinned: SmartMemory[], convoScoped: SmartMemory[]) {
+function mbfRankMemories(args: {
+  userMessage: string
+  conversationId?: string | null
+  globalPinned: SmartMemory[]
+  convoScoped: SmartMemory[]
+}) {
+  const { userMessage, conversationId, globalPinned, convoScoped } = args
   const userTokens = mbfTokenize(userMessage)
+  const userNorm = (userMessage || "").toLowerCase().trim().replace(/\s+/g, " ")
 
   const unique = new Map<string, SmartMemory>()
   for (const m of [...globalPinned, ...convoScoped]) {
@@ -93,11 +102,58 @@ function mbfRankMemories(userMessage: string, globalPinned: SmartMemory[], convo
     if (!unique.has(m.id)) unique.set(m.id, m)
   }
 
+  const now = Date.now()
+
+  function recencyBoost(m: SmartMemory) {
+    const ts =
+      (m.updated_at && Date.parse(m.updated_at)) ||
+      (m.created_at && Date.parse(m.created_at)) ||
+      0
+    if (!ts) return 0
+    const ageDays = Math.max(0, (now - ts) / (1000 * 60 * 60 * 24))
+    return Math.round(60 * Math.exp(-ageDays / 14))
+  }
+
+  function phraseMatchBoost(m: SmartMemory) {
+    const memNorm = (m.content || "").toLowerCase().trim().replace(/\s+/g, " ")
+    if (!memNorm) return 0
+
+    const ordered = userNorm
+      .split(/[^a-z0-9]+/g)
+      .filter(Boolean)
+      .filter((w) => w.length >= 2 && !MBF_STOPWORDS.has(w))
+
+    if (ordered.length < 2) return 0
+
+    const phrases: string[] = []
+    for (let i = 0; i < ordered.length - 1; i++)
+      phrases.push(`${ordered[i]} ${ordered[i + 1]}`)
+    for (let i = 0; i < ordered.length - 2; i++)
+      phrases.push(`${ordered[i]} ${ordered[i + 1]} ${ordered[i + 2]}`)
+
+    let hits = 0
+    for (const p of phrases) {
+      if (p.length < 6) continue
+      if (memNorm.includes(p)) hits++
+      if (hits >= 2) break
+    }
+
+    return hits * 40
+  }
+
   const scored = Array.from(unique.values()).map((m) => {
     const pinnedBoost = m.pinned ? 1000 : 0
     const importance = typeof m.importance === "number" ? m.importance : 0
     const overlap = mbfOverlapScore(userTokens, m.content)
-    const score = pinnedBoost + importance * 10 + overlap * 100
+    const recency = recencyBoost(m)
+    const phrase = phraseMatchBoost(m)
+
+    let score = pinnedBoost + importance * 10 + overlap * 100 + recency + phrase
+
+    if (conversationId && m.conversation_id === conversationId) {
+      score = score * 1.25
+    }
+
     return { m, score }
   })
 
@@ -107,17 +163,28 @@ function mbfRankMemories(userMessage: string, globalPinned: SmartMemory[], convo
 
 async function mbfBuildMemoryContext(userMessage: string, conversationId?: string | null) {
   const { globalPinned, convoScoped } = await mbfFetchMemoryCandidates(conversationId)
-  const ranked = mbfRankMemories(userMessage, globalPinned, convoScoped)
+
+  const ranked = mbfRankMemories({
+    userMessage,
+    conversationId,
+    globalPinned,
+    convoScoped,
+  })
 
   const picked = ranked.slice(0, 5)
-  if (picked.length === 0) return ""
+  if (picked.length === 0) {
+    return { context: "", pickedIds: [] as string[] }
+  }
 
+  const pickedIds = picked.map((m) => m.id)
   const lines = picked.map((m) => `• ${mbfTruncate(m.content, 320)}`)
 
-  return [
+  const context = [
     "Helpful background about the user (use naturally; do not mention as 'memory' unless it fits):",
     ...lines,
   ].join("\n")
+
+  return { context, pickedIds }
 }
 // SECTION: Types
 export type ChatMessage = {
@@ -170,7 +237,11 @@ export async function getFriendReply(
   // SECTION: Task 49 — Smart memory recall (ranked + scoped)
   let memoryContext = ""
   try {
-    memoryContext = await mbfBuildMemoryContext(userMessage, conversationId)
+    const built = await mbfBuildMemoryContext(userMessage, conversationId)
+memoryContext = built.context
+if (built.pickedIds.length > 0) {
+  await touchMemories(built.pickedIds)
+}
   } catch {
     // never block chat
   }
