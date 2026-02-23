@@ -39,7 +39,34 @@ function mbfTruncate(text: string, maxChars = 320): string {
   if (clean.length <= maxChars) return clean
   return clean.slice(0, maxChars - 1).trimEnd() + "…"
 }
+function mbfApplyDecay(memories: SmartMemory[]) {
+  const now = Date.now()
 
+  return memories.map((m) => {
+    if (m.pinned) return m
+
+    const updated =
+      (m.updated_at && Date.parse(m.updated_at)) ||
+      (m.created_at && Date.parse(m.created_at)) ||
+      0
+
+    if (!updated) return m
+
+    const ageDays = (now - updated) / (1000 * 60 * 60 * 24)
+
+    if (ageDays <= 7) return m
+
+    const current = typeof m.importance === "number" ? m.importance : 50
+
+    const decayAmount = Math.min(5, Math.floor(ageDays / 7))
+    const newImportance = Math.max(10, current - decayAmount)
+
+    return {
+      ...m,
+      importance: newImportance,
+    }
+  })
+}
 async function mbfFetchMemoryCandidates(conversationId?: string | null): Promise<{
   globalPinned: SmartMemory[]
   convoScoped: SmartMemory[]
@@ -80,10 +107,13 @@ async function mbfFetchMemoryCandidates(conversationId?: string | null): Promise
     }
   }
 
-  return {
-    globalPinned: (globalPinned ?? []) as SmartMemory[],
-    convoScoped: (convoScoped ?? []) as SmartMemory[],
-  }
+  const gp = mbfApplyDecay((globalPinned ?? []) as SmartMemory[])
+const cs = mbfApplyDecay((convoScoped ?? []) as SmartMemory[])
+
+return {
+  globalPinned: gp,
+  convoScoped: cs,
+}
 }
 
 function mbfRankMemories(args: {
