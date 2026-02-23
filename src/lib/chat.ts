@@ -161,6 +161,40 @@ function mbfRankMemories(args: {
   return scored.map((x) => x.m)
 }
 
+function mbfNormalizeForDedupe(s: string) {
+  return (s || "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/[^a-z0-9\s]/g, "")
+}
+
+function mbfJaccard(a: Set<string>, b: Set<string>) {
+  if (a.size === 0 && b.size === 0) return 1
+  let inter = 0
+  for (const x of a) if (b.has(x)) inter++
+  const union = a.size + b.size - inter
+  return union === 0 ? 0 : inter / union
+}
+
+function mbfIsNearDuplicate(a: string, b: string) {
+  const aNorm = mbfNormalizeForDedupe(a)
+  const bNorm = mbfNormalizeForDedupe(b)
+  if (!aNorm || !bNorm) return false
+  if (aNorm === bNorm) return true
+
+  const aTok = mbfTokenize(aNorm)
+  const bTok = mbfTokenize(bNorm)
+
+  return mbfJaccard(aTok, bTok) >= 0.78
+}
+
+function mbfPickAdaptiveK(userMessage: string) {
+  const len = (userMessage || "").trim().length
+  if (len <= 60) return 3
+  if (len <= 140) return 4
+  return 5
+}
 async function mbfBuildMemoryContext(userMessage: string, conversationId?: string | null) {
   const { globalPinned, convoScoped } = await mbfFetchMemoryCandidates(conversationId)
 
@@ -171,13 +205,43 @@ async function mbfBuildMemoryContext(userMessage: string, conversationId?: strin
     convoScoped,
   })
 
-  const picked = ranked.slice(0, 5)
+  // Adaptive injection size
+  const targetK = mbfPickAdaptiveK(userMessage)
+
+  const perItemMax = 260
+  const totalMax = 900
+
+  const picked: SmartMemory[] = []
+  let totalChars = 0
+
+  for (const m of ranked) {
+    if (picked.length >= targetK) break
+
+    const trimmed = mbfTruncate(m.content, perItemMax)
+
+    // Deduplicate against already selected memories
+    let dup = false
+    for (const p of picked) {
+      if (mbfIsNearDuplicate(trimmed, p.content)) {
+        dup = true
+        break
+      }
+    }
+    if (dup) continue
+
+    const projected = totalChars + trimmed.length + 4
+    if (projected > totalMax) break
+
+    picked.push({ ...m, content: trimmed })
+    totalChars = projected
+  }
+
   if (picked.length === 0) {
     return { context: "", pickedIds: [] as string[] }
   }
 
   const pickedIds = picked.map((m) => m.id)
-  const lines = picked.map((m) => `• ${mbfTruncate(m.content, 320)}`)
+  const lines = picked.map((m) => `• ${m.content}`)
 
   const context = [
     "Helpful background about the user (use naturally; do not mention as 'memory' unless it fits):",
