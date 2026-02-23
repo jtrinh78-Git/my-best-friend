@@ -6,7 +6,9 @@ import {
   isDefaultConversationTitle,
 } from "../lib/conversationTitles"
 import Sidebar from "../components/Sidebar"
+import { saveImportantMemoriesFromUserMessage } from "../lib/memoryCapture"
 
+import { MemoryRow, deleteMemory, fetchTopMemories, setMemoryPinned } from "../lib/memory"
 // SECTION: Types
 type Conversation = {
   id: string
@@ -78,6 +80,7 @@ function TypingBubble() {
 
 // SECTION: MainApp
 export default function MainApp() {
+  // SECTION: Core state
   const [status, setStatus] = useState<"online" | "typing">("online")
   const [input, setInput] = useState("")
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -88,17 +91,71 @@ export default function MainApp() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
   const [activeConversationTitle, setActiveConversationTitle] = useState<string>("My Best Friend")
 
+  // SECTION: Memory panel state
+  const [memoryOpen, setMemoryOpen] = useState(false)
+  const [memories, setMemories] = useState<MemoryRow[]>([])
+  const [memoriesLoading, setMemoriesLoading] = useState(false)
+  const [memoriesError, setMemoriesError] = useState<string>("")
+
+  // SECTION: Derived state
   const canSend = useMemo(() => input.trim().length > 0, [input])
-  const canSendNow = useMemo(() => canSend && !loading && !!activeConversationId && status !== "typing", [
-    canSend,
-    loading,
-    activeConversationId,
-    status,
-  ])
+  const canSendNow = useMemo(
+    () => canSend && !loading && !!activeConversationId && status !== "typing",
+    [canSend, loading, activeConversationId, status]
+  )
 
   const scrollerRef = useRef<HTMLDivElement | null>(null)
-
   const isEmptyChat = useMemo(() => !messages.some((m) => m.role === "user"), [messages])
+
+  // SECTION: Fetch memories
+  const refreshMemories = async () => {
+    try {
+      setMemoriesLoading(true)
+      setMemoriesError("")
+      const list = await fetchTopMemories({ limit: 50 })
+      setMemories(list)
+    } catch (e: any) {
+      setMemoriesError(e?.message ?? "Failed to load memories.")
+    } finally {
+      setMemoriesLoading(false)
+    }
+  }
+
+  // SECTION: Load memories on open
+  useEffect(() => {
+    if (!memoryOpen) return
+    refreshMemories()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [memoryOpen])
+
+  // SECTION: Memory actions
+  const togglePinMemory = async (m: MemoryRow) => {
+    try {
+      await setMemoryPinned(m.id, !m.pinned)
+      setMemories((prev) =>
+        prev
+          .map((x) => (x.id === m.id ? { ...x, pinned: !m.pinned } : x))
+          .sort(
+            (a, b) =>
+              Number(b.pinned) - Number(a.pinned) || (b.importance ?? 0) - (a.importance ?? 0)
+          )
+      )
+    } catch (e: any) {
+      setMemoriesError(e?.message ?? "Failed to update memory.")
+    }
+  }
+
+  const removeMemory = async (m: MemoryRow) => {
+    const ok = window.confirm("Delete this memory?\n\nThis cannot be undone.")
+    if (!ok) return
+
+    try {
+      await deleteMemory(m.id)
+      setMemories((prev) => prev.filter((x) => x.id !== m.id))
+    } catch (e: any) {
+      setMemoriesError(e?.message ?? "Failed to delete memory.")
+    }
+  }
 
   // SECTION: Session helper
   const getUserId = async () => {
@@ -118,7 +175,6 @@ export default function MainApp() {
     if (convErr) throw convErr
     return (data ?? []) as Conversation[]
   }
-
   // SECTION: Ensure active conversation on mount
   useEffect(() => {
     let cancelled = false
@@ -350,6 +406,14 @@ export default function MainApp() {
       const savedUser = await insertMessage("user", text)
       setMessages((prev) => prev.map((m) => (m.id === optimisticUserMsg.id ? savedUser : m)))
 
+      try {
+  await saveImportantMemoriesFromUserMessage({
+    text,
+    conversationId: activeConversationId,
+  })
+} catch {
+  // never block chat
+}
       if (!hadUserBeforeSend && titleWasDefault && activeConversationId) {
         const nextTitle = deriveConversationTitleFromFirstMessage(text)
         try {
@@ -449,7 +513,7 @@ export default function MainApp() {
         />
 
         {/* SECTION: Chat panel */}
-        <div className="flex min-h-0 flex-1 flex-col">
+        <div className="relative flex min-h-0 flex-1 flex-col">
           {/* SECTION: Header */}
           <div className="flex items-center justify-between gap-3 border-b border-zinc-800 px-5 py-4">
             <div className="min-w-0">
@@ -464,29 +528,37 @@ export default function MainApp() {
             </div>
 
             <div className="flex items-center gap-2">
-              <button
-                className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 transition hover:bg-zinc-900 disabled:opacity-50"
-                onClick={renameChatPrompt}
-                disabled={loading || !activeConversationId}
-              >
-                Rename
-              </button>
+  <button
+    className="shrink-0 rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 transition hover:bg-zinc-900"
+    onClick={() => setMemoryOpen((v) => !v)}
+  >
+    {memoryOpen ? "Close Memory" : "Memory"}
+  </button>
 
-              <button
-                className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-red-200 transition hover:bg-zinc-900 disabled:opacity-50"
-                onClick={deleteChatPrompt}
-                disabled={loading || !activeConversationId}
-              >
-                Delete
-              </button>
+  {/* keep your existing buttons below */}
+  <button
+    className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 transition hover:bg-zinc-900 disabled:opacity-50"
+    onClick={renameChatPrompt}
+    disabled={loading || !activeConversationId}
+  >
+    Rename
+  </button>
 
-              <button
-                className="shrink-0 rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 transition hover:bg-zinc-900"
-                onClick={() => alert("Settings (later)")}
-              >
-                Settings
-              </button>
-            </div>
+  <button
+    className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-red-200 transition hover:bg-zinc-900 disabled:opacity-50"
+    onClick={deleteChatPrompt}
+    disabled={loading || !activeConversationId}
+  >
+    Delete
+  </button>
+
+  <button
+    className="shrink-0 rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 transition hover:bg-zinc-900"
+    onClick={() => alert("Settings (later)")}
+  >
+    Settings
+  </button>
+</div>
           </div>
 
           {/* SECTION: Body */}
@@ -578,6 +650,88 @@ export default function MainApp() {
               </div>
             )}
           </div>
+          {/* SECTION: Memory Panel */}
+{memoryOpen && (
+  <div className="pointer-events-none absolute inset-0">
+    <div className="pointer-events-auto absolute right-4 top-20 w-[380px] overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 shadow-xl">
+      <div className="flex items-center justify-between gap-2 border-b border-zinc-800 px-4 py-3">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-zinc-100">Memory</div>
+          <div className="text-xs text-zinc-500">What I’ve saved about you</div>
+        </div>
+
+        <button
+          className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-100 transition hover:bg-zinc-900 disabled:opacity-50"
+          onClick={refreshMemories}
+          disabled={memoriesLoading}
+        >
+          Refresh
+        </button>
+      </div>
+
+      <div className="max-h-[60vh] overflow-y-auto p-3">
+        {memoriesLoading ? (
+          <div className="px-2 py-2 text-sm text-zinc-300">Loading…</div>
+        ) : memoriesError ? (
+          <div className="px-2 py-2 text-sm text-red-300">Error: {memoriesError}</div>
+        ) : memories.length === 0 ? (
+          <div className="px-2 py-6 text-sm text-zinc-400">
+            No memories yet.
+            <div className="mt-2 text-xs text-zinc-500">
+              Try saying: “my name is …” or “I prefer …”
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {memories.map((m) => (
+              <div key={m.id} className="rounded-xl border border-zinc-800 bg-zinc-950 p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {m.pinned && (
+                        <span className="rounded-full border border-zinc-700 bg-zinc-900/40 px-2 py-0.5 text-[11px] text-zinc-200">
+                          Pinned
+                        </span>
+                      )}
+                      <span className="rounded-full border border-zinc-800 bg-zinc-950 px-2 py-0.5 text-[11px] text-zinc-400">
+                        {m.category || "general"}
+                      </span>
+                      <span className="text-[11px] text-zinc-500">Imp {m.importance ?? 50}</span>
+                    </div>
+
+                    <div className="mt-2 text-sm leading-relaxed text-zinc-100">{m.content}</div>
+
+                    <div className="mt-2 text-[11px] text-zinc-500">Source: {m.source || "auto"}</div>
+                  </div>
+
+                  <div className="flex shrink-0 flex-col gap-2">
+                    <button
+                      className="rounded-lg border border-zinc-800 bg-zinc-950 px-2 py-1 text-xs text-zinc-100 transition hover:bg-zinc-900"
+                      onClick={() => togglePinMemory(m)}
+                    >
+                      {m.pinned ? "Unpin" : "Pin"}
+                    </button>
+
+                    <button
+                      className="rounded-lg border border-zinc-800 bg-zinc-950 px-2 py-1 text-xs text-red-200 transition hover:bg-zinc-900"
+                      onClick={() => removeMemory(m)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="border-t border-zinc-800 px-4 py-3 text-xs text-zinc-500">
+        Tip: Pin the important ones so they always stay on top.
+      </div>
+    </div>
+  </div>
+)}
 
           {/* SECTION: Input */}
           <div className="border-t border-zinc-800 px-5 py-4">
