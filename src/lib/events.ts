@@ -135,3 +135,39 @@ export async function listDueEvents(windowMinutes = 10, limit = 25) {
   if (error) throw error
   return data as EventRow[]
 }
+// SECTION: Escalation decision
+export type EscalationAction =
+  | { type: "none"; reason: string }
+  | { type: "push"; reason: string }
+  | { type: "sms"; reason: string }
+
+export function decideEscalation(args: {
+  isCritical: boolean
+  escalationLevel: number
+  minutesLate: number
+  hasSmsAddon: boolean
+}) : EscalationAction {
+  const { isCritical, escalationLevel, minutesLate, hasSmsAddon } = args
+
+  // Not late enough → no escalation
+  if (minutesLate < 2) return { type: "none", reason: "Not late yet" }
+
+  // Level 0 → push
+  if (escalationLevel <= 0) return { type: "push", reason: "First nudge (push)" }
+
+  // Level 1 → push again after 10 min late
+  if (escalationLevel === 1) {
+    if (minutesLate < 10) return { type: "none", reason: "Waiting before second push" }
+    return { type: "push", reason: "Second nudge (push)" }
+  }
+
+  // Level 2+ → SMS if critical + addon + 20+ min late
+  if (escalationLevel >= 2) {
+    if (!isCritical) return { type: "push", reason: "Not critical → push only" }
+    if (!hasSmsAddon) return { type: "push", reason: "No SMS add-on → push only" }
+    if (minutesLate < 20) return { type: "none", reason: "Waiting before SMS escalation" }
+    return { type: "sms", reason: "Escalate to SMS" }
+  }
+
+  return { type: "none", reason: "Default" }
+}
