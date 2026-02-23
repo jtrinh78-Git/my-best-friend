@@ -66,17 +66,56 @@ export async function fetchTopMemories(opts?: {
 }
 
 // SECTION: Touch memories
-export async function touchMemories(ids: string[]): Promise<void> {
-  if (!ids.length) return
-  const uid = await requireUserId()
+export async function touchMemories(ids: string[]) {
+  const uniqueIds = Array.from(new Set((ids || []).filter(Boolean)))
+  if (uniqueIds.length === 0) return
 
-  const { error } = await supabase
+  const { data: userRes } = await supabase.auth.getUser()
+  const userId = userRes.user?.id
+  if (!userId) throw new Error("Not signed in")
+
+  // SECTION: Load current importance/pinned so we can boost safely
+  const { data: rows, error: fetchErr } = await supabase
     .from("memories")
-    .update({ last_accessed_at: new Date().toISOString() })
-    .eq("user_id", uid)
-    .in("id", ids)
+    .select("id, pinned, importance")
+    .eq("user_id", userId)
+    .in("id", uniqueIds)
 
-  if (error) throw error
+  if (fetchErr) throw fetchErr
+
+  const nowIso = new Date().toISOString()
+
+  // SECTION: Boost rule
+  // - pinned: no boost (pinned already wins ranking)
+  // - else: +2 (cap 100)
+  const updates = (rows ?? []).map((r: any) => {
+    const pinned = !!r.pinned
+    const cur = typeof r.importance === "number" ? r.importance : 50
+    const next = pinned ? cur : Math.min(100, cur + 2)
+
+    return {
+      id: r.id,
+      updated_at: nowIso,
+      importance: next,
+    }
+  })
+
+  if (updates.length === 0) return
+
+  // SECTION: Apply updates (small batch: usually 1–5 ids)
+  // We do per-row updates to avoid relying on server-side arithmetic.
+  const results = await Promise.all(
+    updates.map((u) =>
+      supabase
+        .from("memories")
+        .update({ updated_at: u.updated_at, importance: u.importance })
+        .eq("user_id", userId)
+        .eq("id", u.id)
+    )
+  )
+
+  const firstErr = results.find((r) => r.error)?.error
+  if (firstErr) throw firstErr
 }
 
 // SECTION: Create memory
