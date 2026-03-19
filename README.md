@@ -1,73 +1,72 @@
-# React + TypeScript + Vite
+# My Best Friend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A premium AI companion app — calm, supportive, and memory-aware.
 
-Currently, two official plugins are available:
+## Tech Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **Frontend:** React 19 + TypeScript + Vite
+- **Styling:** TailwindCSS v4
+- **Backend:** Supabase (Auth + Database + Edge Functions)
+- **Routing:** React Router v7
 
-## React Compiler
+## Project Structure
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```
+src/
+├── components/
+│   ├── auth/
+│   │   └── SignInScreen.tsx      # Magic link sign-in UI
+│   ├── chat/
+│   │   ├── ChatHeader.tsx        # Chat title bar + actions
+│   │   ├── ChatInput.tsx         # Auto-resizing message input
+│   │   └── MessageList.tsx       # Message bubbles + day separators + typing indicator
+│   ├── memory/
+│   │   └── MemoryPanel.tsx       # Memory viewer + pin/delete
+│   ├── ui/
+│   │   ├── Skeleton.tsx          # Skeleton loaders
+│   │   └── Toast.tsx             # Toast notification system
+│   └── Sidebar.tsx               # Conversation list sidebar
+├── hooks/
+│   └── useAuth.ts                # Centralized auth + profile state
+├── lib/
+│   ├── chat.ts                   # Chat reply logic + memory context
+│   ├── conversationTitles.ts     # Auto-title helpers
+│   ├── events.ts                 # Calendar events + escalation logic
+│   ├── memory.ts                 # Memory CRUD
+│   ├── memoryCapture.ts          # Auto-extract memories from messages
+│   ├── supabase.ts               # Supabase client
+│   └── utils.ts                  # Tailwind class merge utility
+├── pages/
+│   ├── MainApp.tsx               # Main chat interface
+│   └── OnboardingScreen.tsx      # First-time setup
+├── types/
+│   └── index.ts                  # Shared TypeScript interfaces
+├── App.tsx                       # Root — auth routing
+├── AuthCallback.tsx              # OAuth/Magic link callback handler
+└── main.tsx                      # App entry point
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Getting Started
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+1. Copy `.env.local.example` to `.env.local` and fill in your Supabase credentials:
+   ```
+   VITE_SUPABASE_URL=your_supabase_url
+   VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+   ```
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+3. Start the development server:
+   ```bash
+   npm run dev
+   ```
+
+## Environment Variables
+
+| Variable | Description |
+|---|---|
+| `VITE_SUPABASE_URL` | Your Supabase project URL |
+| `VITE_SUPABASE_ANON_KEY` | Your Supabase anonymous (public) key |

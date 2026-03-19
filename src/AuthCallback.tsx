@@ -2,76 +2,114 @@ import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { supabase } from "./lib/supabase"
 
-// SECTION: AuthCallback
+type CallbackStatus = "pending" | "success" | "error"
+
 export default function AuthCallback() {
   const navigate = useNavigate()
-  const [msg, setMsg] = useState("Completing sign-in…")
+  const [status, setStatus] = useState<CallbackStatus>("pending")
+  const [message, setMessage] = useState("Completing sign-in…")
 
   useEffect(() => {
     let cancelled = false
 
-    ;(async () => {
+    const handleCallback = async () => {
       try {
         const url = new URL(window.location.href)
         const code = url.searchParams.get("code")
 
-        // SECTION: PKCE code exchange
+        // PKCE code exchange
         if (code) {
           const { error } = await supabase.auth.exchangeCodeForSession(code)
           if (error) {
-            if (!cancelled) setMsg(`Auth error (exchangeCodeForSession): ${error.message}`)
+            if (!cancelled) {
+              setStatus("error")
+              setMessage(`Authentication failed: ${error.message}`)
+            }
             return
           }
 
           const { data: after } = await supabase.auth.getSession()
           if (!after.session) {
-            if (!cancelled) setMsg("Signed in, but no session found after exchange. Try again.")
+            if (!cancelled) {
+              setStatus("error")
+              setMessage("Signed in, but no session was found. Please try again.")
+            }
             return
           }
 
-          if (!cancelled) setMsg("Signed in. Redirecting…")
-          navigate("/", { replace: true })
+          if (!cancelled) {
+            setStatus("success")
+            setMessage("Signed in. Redirecting…")
+            navigate("/", { replace: true })
+          }
           return
         }
 
-        // SECTION: Fallback (hash/token style)
-        const { data, error } = await supabase.auth.getSession()
-        if (error) {
-          if (!cancelled) setMsg(`Session error: ${error.message}`)
+        // Fallback: check existing session
+        const { data, error: sessionError } = await supabase.auth.getSession()
+        if (sessionError) {
+          if (!cancelled) {
+            setStatus("error")
+            setMessage(`Session error: ${sessionError.message}`)
+          }
           return
         }
 
         if (data.session) {
-          if (!cancelled) setMsg("Signed in. Redirecting…")
-          navigate("/", { replace: true })
+          if (!cancelled) {
+            setStatus("success")
+            setMessage("Signed in. Redirecting…")
+            navigate("/", { replace: true })
+          }
           return
         }
 
         if (!cancelled) {
-          setMsg("No code/session found. This link may be invalid or redirect URL is wrong.")
+          setStatus("error")
+          setMessage("No sign-in code or session found. This link may be invalid or expired.")
         }
-      } catch (e: any) {
-        if (!cancelled) setMsg(`Unexpected error: ${e?.message ?? String(e)}`)
+      } catch (err: unknown) {
+        if (!cancelled) {
+          const msg = err instanceof Error ? err.message : "An unexpected error occurred."
+          setStatus("error")
+          setMessage(msg)
+        }
       }
-    })()
-
-    return () => {
-      cancelled = true
     }
+
+    handleCallback()
+    return () => { cancelled = true }
   }, [navigate])
 
+  const statusColor: Record<CallbackStatus, string> = {
+    pending: "text-zinc-300",
+    success: "text-emerald-300",
+    error: "text-red-300",
+  }
+
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-50">
-      <div className="mx-auto max-w-xl px-4 py-10">
-        <h1 className="text-2xl font-semibold">My Best Friend</h1>
+    <div className="flex min-h-screen items-center justify-center bg-zinc-950 px-4">
+      <div className="w-full max-w-sm">
+        <div className="mb-6 text-center">
+          <div className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-zinc-800 bg-zinc-900 text-xl">
+            🤝
+          </div>
+          <h1 className="text-2xl font-semibold text-zinc-50">My Best Friend</h1>
+        </div>
 
-        <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/40 p-4">
-          <div className="text-sm text-zinc-300">{msg}</div>
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
+          <p className={`text-sm ${statusColor[status]}`}>{message}</p>
 
-          <div className="mt-3 text-xs text-zinc-400">Current URL:</div>
-          <pre className="mt-2 overflow-auto rounded-xl border border-zinc-800 bg-zinc-950 p-3 text-xs text-zinc-100">
-            {window.location.href}
-          </pre>
+          {status === "error" && (
+            <div className="mt-4">
+              <a
+                href="/"
+                className="inline-block rounded-xl border border-zinc-700 px-4 py-2 text-xs text-zinc-300 transition hover:bg-zinc-800"
+              >
+                Back to home
+              </a>
+            </div>
+          )}
         </div>
       </div>
     </div>

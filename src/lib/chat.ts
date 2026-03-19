@@ -1,5 +1,6 @@
 import { supabase } from "./supabase"
-import { fetchTopMemories, touchMemories, MemoryRow } from "./memory"
+import { fetchTopMemories, touchMemories } from "./memory"
+import type { MemoryRow } from "../types"
 // SECTION: Smart memory recall (Task 49)
 
 type SmartMemory = {
@@ -95,10 +96,10 @@ async function mbfFetchMemoryCandidates(conversationId?: string | null): Promise
         .order("importance", { ascending: false })
         .order("updated_at", { ascending: false })
         .limit(10)
-    : Promise.resolve({ data: [] as any[] })
+    : Promise.resolve({ data: [] as SmartMemory[], error: null })
 
   const [{ data: globalPinned, error: gpErr }, { data: convoScoped, error: csErr }] =
-    await Promise.all([globalPinnedQ, convoScopedQ as any])
+    await Promise.all([globalPinnedQ, convoScopedQ])
 
   if (gpErr || csErr) {
     return {
@@ -280,13 +281,9 @@ async function mbfBuildMemoryContext(userMessage: string, conversationId?: strin
 
   return { context, pickedIds }
 }
-// SECTION: Types
-export type ChatMessage = {
-  id: string
-  role: "user" | "friend"
-  text: string
-  ts: number
-}
+// Re-export ChatMessage from types for backwards compatibility
+export type { ChatMessage } from "../types"
+import type { ChatMessage } from "../types"
 
 // SECTION: Memory helpers
 function tokenize(s: string) {

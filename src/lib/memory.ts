@@ -1,32 +1,7 @@
 import { supabase } from "./supabase"
+import type { MemoryRow, CreateMemoryInput } from "../types"
 
-// SECTION: Types
-export type MemoryRow = {
-  id: string
-  user_id: string
-  conversation_id: string | null
-  category: string
-  key: string | null
-  content: string
-  importance: number
-  source: "auto" | "user" | "import" | string
-  pinned: boolean
-  last_accessed_at: string | null
-  created_at: string
-  updated_at: string
-}
-
-export type CreateMemoryInput = {
-  conversationId?: string | null
-  category?: string
-  key?: string | null
-  content: string
-  importance?: number
-  source?: "auto" | "user" | "import"
-  pinned?: boolean
-}
-
-// SECTION: Helpers
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 async function requireUserId(): Promise<string> {
   const { data, error } = await supabase.auth.getSession()
   if (error) throw error
@@ -35,7 +10,7 @@ async function requireUserId(): Promise<string> {
   return uid
 }
 
-// SECTION: Fetch memories
+// ─── Fetch memories ───────────────────────────────────────────────────────────
 export async function fetchTopMemories(opts?: {
   limit?: number
   conversationId?: string | null
@@ -65,16 +40,15 @@ export async function fetchTopMemories(opts?: {
   return (data ?? []) as MemoryRow[]
 }
 
-// SECTION: Touch memories
-export async function touchMemories(ids: string[]) {
-  const uniqueIds = Array.from(new Set((ids || []).filter(Boolean)))
+// ─── Touch memories (boost importance on use) ─────────────────────────────────
+export async function touchMemories(ids: string[]): Promise<void> {
+  const uniqueIds = Array.from(new Set(ids.filter(Boolean)))
   if (uniqueIds.length === 0) return
 
   const { data: userRes } = await supabase.auth.getUser()
   const userId = userRes.user?.id
   if (!userId) throw new Error("Not signed in")
 
-  // SECTION: Load current importance/pinned so we can boost safely
   const { data: rows, error: fetchErr } = await supabase
     .from("memories")
     .select("id, pinned, importance")
@@ -85,25 +59,15 @@ export async function touchMemories(ids: string[]) {
 
   const nowIso = new Date().toISOString()
 
-  // SECTION: Boost rule
-  // - pinned: no boost (pinned already wins ranking)
-  // - else: +2 (cap 100)
-  const updates = (rows ?? []).map((r: any) => {
+  const updates = (rows ?? []).map((r: { id: string; pinned: boolean; importance: number }) => {
     const pinned = !!r.pinned
     const cur = typeof r.importance === "number" ? r.importance : 50
     const next = pinned ? cur : Math.min(100, cur + 2)
-
-    return {
-      id: r.id,
-      updated_at: nowIso,
-      importance: next,
-    }
+    return { id: r.id, updated_at: nowIso, importance: next }
   })
 
   if (updates.length === 0) return
 
-  // SECTION: Apply updates (small batch: usually 1–5 ids)
-  // We do per-row updates to avoid relying on server-side arithmetic.
   const results = await Promise.all(
     updates.map((u) =>
       supabase
@@ -118,7 +82,7 @@ export async function touchMemories(ids: string[]) {
   if (firstErr) throw firstErr
 }
 
-// SECTION: Create memory
+// ─── Create memory ────────────────────────────────────────────────────────────
 export async function createMemory(input: CreateMemoryInput): Promise<MemoryRow> {
   const uid = await requireUserId()
 
@@ -147,24 +111,24 @@ export async function createMemory(input: CreateMemoryInput): Promise<MemoryRow>
   return data as MemoryRow
 }
 
-// SECTION: Pin/unpin
+// ─── Pin / unpin ──────────────────────────────────────────────────────────────
 export async function setMemoryPinned(memoryId: string, pinned: boolean): Promise<void> {
   const uid = await requireUserId()
-
   const { error } = await supabase
     .from("memories")
     .update({ pinned })
     .eq("user_id", uid)
     .eq("id", memoryId)
-
   if (error) throw error
 }
 
-// SECTION: Delete memory
+// ─── Delete memory ────────────────────────────────────────────────────────────
 export async function deleteMemory(memoryId: string): Promise<void> {
   const uid = await requireUserId()
-
-  const { error } = await supabase.from("memories").delete().eq("user_id", uid).eq("id", memoryId)
-
+  const { error } = await supabase
+    .from("memories")
+    .delete()
+    .eq("user_id", uid)
+    .eq("id", memoryId)
   if (error) throw error
 }
